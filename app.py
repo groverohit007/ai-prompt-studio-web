@@ -9,28 +9,6 @@ from master_dna import DEFAULT_MASTER_DNA
 load_dotenv()
 
 st.set_page_config(page_title="AI Prompt Studio", layout="wide")
-# --- Simple password gate (single-user) ---
-APP_PASSWORD = os.getenv("APP_PASSWORD", "").strip()
-
-if APP_PASSWORD:
-    if "auth_ok" not in st.session_state:
-        st.session_state.auth_ok = False
-
-    if not st.session_state.auth_ok:
-        st.title("AI Prompt Studio (Web)")
-        pw = st.text_input("Enter password", type="password")
-
-        if st.button("Login"):
-            if pw == APP_PASSWORD:
-                st.session_state.auth_ok = True
-                st.success("Logged in!")
-                st.rerun()
-            else:
-                st.error("Wrong password")
-
-        st.stop()
-# --- end password gate ---
-
 
 API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 MODEL_DEFAULT = os.getenv("OPENAI_MODEL", "gpt-4.1-mini").strip()
@@ -139,6 +117,7 @@ with tabs[2]:
     if data and isinstance(data, dict):
         prompts = data.get("prompts", [])
         scene_lock = (data.get("scene_lock") or "").strip()
+        compact_dna = (data.get("compact_master_dna") or "").strip()
 
         left, right = st.columns([1, 2])
         with left:
@@ -149,32 +128,29 @@ with tabs[2]:
             idx = int(choice.split(".")[0]) - 1
             picked = prompts[idx] if 0 <= idx < len(prompts) else {}
 
-            full = (picked.get("full_prompt") or "").strip()
-            if not full:
-                # Fallback: build prompt if model forgot full_prompt
-                master = st.session_state.master_prompt.strip()
-                pose_name = (picked.get("pose_name") or "").strip()
-                pose_desc = (picked.get("pose_description") or "").strip()
-                full = "\n".join([
-                    master,
-                    "",
-                    "PROMPT:",
-                    "Body structure: Hourglass (36-28-36) — keep identical in every generation.",
-                    "",
-                    f"Pose: {pose_name}" if pose_name else "Pose: (selected pose)",
-                    f"Pose details: {pose_desc}" if pose_desc else "",
-                    "",
-                    f"Scene lock (keep everything else identical): {scene_lock}" if scene_lock else "",
-                    "",
-                    "Quality + realism constraints:",
-                    "- shot on iPhone 17, f/16 look",
-                    "- realistic physics-based lighting and shadows",
-                    "- natural skin texture with pores and micro-details (not plastic, not overly smoothed)",
-                    "- sharp focus on subject, realistic depth of field",
-                    "",
-                    "Negative prompt:",
-                    "blurry, low-res, over-smoothed skin, plastic skin, uncanny face, deformed hands, extra fingers, bad anatomy, watermark, logo, text artifacts",
-                ]).strip()
+            pose_name = (picked.get("pose_name") or "").strip()
+            pose_desc = (picked.get("pose_description") or "").strip()
+
+            # Build the final usable prompt locally (prevents token/JSON break issues)
+            full = "\n".join([
+                compact_dna or st.session_state.master_prompt.strip(),
+                "",
+                "PROMPT:",
+                "Body structure: Hourglass (36-28-36) — keep identical in every generation.",
+                f"Pose: {pose_name}" if pose_name else "Pose: (selected pose)",
+                f"Pose details: {pose_desc}" if pose_desc else "",
+                "",
+                f"Scene lock (keep everything else identical): {scene_lock}" if scene_lock else "",
+                "",
+                "Quality + realism constraints:",
+                "- shot on iPhone 17, f/16 look",
+                "- realistic physics-based lighting and shadows",
+                "- natural skin texture with pores and micro-details (not plastic, not overly smoothed)",
+                "- sharp focus on subject, realistic depth of field",
+                "",
+                "Negative prompt:",
+                "blurry, low-res, over-smoothed skin, plastic skin, uncanny face, deformed hands, extra fingers, bad anatomy, watermark, logo, text artifacts",
+            ]).strip()
 
             st.text_area("Selected Prompt", value=full, height=420)
 

@@ -1,6 +1,6 @@
 import base64
 import json
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from openai import OpenAI
 
@@ -9,16 +9,17 @@ class OpenAIService:
     """
     Streamlit-ready OpenAI service:
       - Supports Streamlit UploadedFile (file-like) via *_filelike methods
-      - Robust JSON parsing & repair
+      - Robust JSON parsing & repair for model outputs
       - Enforces Body structure: Hourglass (36-28-36)
-      - Uses COMPACT identity DNA for Poser to avoid length/token issues
+      - POSER returns *compact JSON* (no giant full_prompt strings) to avoid truncation/JSON issues.
+        The UI builds the final full prompt locally.
     """
 
     def __init__(self, api_key: str, model: str = "gpt-4.1-mini"):
         self.client = OpenAI(api_key=api_key)
         self.model = model
 
-    # -------------------- Poser: compact DNA --------------------
+    # -------------------- Identity helpers --------------------
 
     def compact_master_dna_for_poser(self, master_dna: str) -> str:
         """
@@ -128,7 +129,7 @@ class OpenAIService:
 
         return "".join(out)
 
-    def _repair_json_with_model(self, bad_text: str) -> Dict[str, Any]:
+    def _repair_json_with_model(self, bad_text: str, max_output_tokens: int = 1200) -> Dict[str, Any]:
         fix = self.client.responses.create(
             model=self.model,
             instructions=(
@@ -140,7 +141,7 @@ class OpenAIService:
                 "role": "user",
                 "content": [{"type": "input_text", "text": bad_text}],
             }],
-            max_output_tokens=1600,
+            max_output_tokens=max_output_tokens,
         )
         fixed = (fix.output_text or "").strip()
         fixed = self._sanitize_json_text(fixed)
@@ -276,7 +277,7 @@ class OpenAIService:
         ]
         return "\n".join(parts)
 
-    # -------------------- POSER --------------------
+    # -------------------- POSER (compact JSON) --------------------
 
     def poser_variations_filelike(self, uploaded_file, master_dna: str, pose_style: str) -> Dict[str, Any]:
         data_url = self._filelike_to_data_url(uploaded_file)
@@ -288,20 +289,18 @@ class OpenAIService:
 
         instructions = (
             "You are an expert prompt engineer.\n"
-            "Analyze the image and generate 5 new prompts that keep EVERYTHING the same:\n"
-            "- same identity (MASTER DNA verbatim), same face, same body structure,\n"
-            "- same attire, makeup, background, lighting, camera style.\n"
-            "Only change: POSE.\n\n"
-            "IMPORTANT: Body structure must be forced in every prompt as:\n"
-            "Body structure: Hourglass (36-28-36)\n\n"
+            "Analyze the image and create 5 different POSES while keeping everything else identical.\n\n"
+            "You MUST keep: same identity, same face, same body, same attire, same makeup, same background, same lighting, same camera style.\n"
+            "Only change: the pose.\n\n"
             "Return ONLY valid JSON with keys:\n"
-            "scene_lock, pose_style, prompts (array of 5 objects: pose_name, pose_description, full_prompt).\n\n"
+            "scene_lock (string), pose_style (string), poses (array of exactly 5 objects).\n\n"
+            "Each object must have:\n"
+            "- pose_name (short)\n"
+            "- pose_description (1–2 sentences, specific and visual)\n\n"
             "Rules:\n"
-            "- Each full_prompt MUST start with MASTER DNA verbatim.\n"
-            "- Each full_prompt MUST include: 'Body structure: Hourglass (36-28-36)'.\n"
-            "- Each full_prompt must be concise (max ~1200 characters). Do NOT add long explanations.\n"
+            "- DO NOT include long full prompts, only pose_name and pose_description.\n"
+            "- Keep it tasteful and safe-for-work.\n"
             "- IMPORTANT: Use \\n for newlines and escape quotes as \\\" in JSON strings.\n"
-            "Safety: keep it tasteful and safe-for-work."
         )
 
         input_items = [
@@ -311,10 +310,10 @@ class OpenAIService:
                     {
                         "type": "input_text",
                         "text": (
-                            "MASTER DNA (must be inserted verbatim at top of each full_prompt):\n"
+                            "MASTER DNA (for reference only; do not output it):\n"
                             f"{compact_dna}\n\n"
                             f"Pose style to target: {pose_style}\n\n"
-                            "Now analyze the image and create 5 pose prompts."
+                            "Now analyze the image and return the JSON."
                         ),
                     },
                     {"type": "input_image", "image_url": data_url, "detail": "high"},
@@ -322,4 +321,27 @@ class OpenAIService:
             }
         ]
 
-        return self._call_json(input_items, instructions, max_output_tokens=1500)
+        data = self._call_json(input_items, instructions, max_output_tokens=900)
+
+        # Normalize to the structure the UI expects: prompts=[{pose_name, pose_description, full_prompt}]
+        scene_lock = (data.get("scene_lock") or "").strip()
+        poses = data.get("poses") or data.get("prompts") or []
+        if not isinstance(poses, list):
+            poses = []
+
+        prompts: List[Dict[str, str]] = []
+        for p in poses[:5]:
+            if not isinstance(p, dict):
+                continue
+            prompts.append({
+                "pose_name": (p.get("pose_name") or "").strip(),
+                "pose_description": (p.get("pose_description") or "").strip(),
+                "full_prompt": "",  # UI will build this locally
+            })
+
+        return {
+            "scene_lock": scene_lock,
+            "pose_style": (data.get("pose_style") or pose_style).strip(),
+            "prompts": prompts,
+            "compact_master_dna": compact_dna,
+        }
