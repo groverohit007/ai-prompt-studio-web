@@ -17,6 +17,27 @@ class OpenAIService:
         self.client = OpenAI(api_key=api_key)
         self.model = model
 
+    def compact_master_dna_for_poser(self, master_dna: str) -> str:
+    """
+    Creates a short identity lock for Poser to avoid token/length issues.
+    Keeps key facial traits + age/ethnicity + hair + skin + hourglass.
+    """
+    # If user already pasted a short DNA, keep it.
+    s = (master_dna or "").strip()
+    if len(s) <= 700:
+        return s
+
+    return (
+        "LOCKED IDENTITY DNA (COMPACT) — DO NOT ALTER\n"
+        "24–26-year-old South Asian (Indian-origin) female. Warm fair-to-medium golden-olive complexion; realistic skin texture with visible pores.\n"
+        "Soft oval face, gently rounded cheeks, smooth feminine jawline, rounded chin.\n"
+        "Medium-large almond deep-brown eyes with visible lid creases; dark medium-thick brows with soft natural arch.\n"
+        "Straight proportionate nose with softly rounded refined tip.\n"
+        "Naturally full balanced lips with defined cupid’s bow; muted rosy-pink tone; genuine smile with realistic teeth.\n"
+        "Dark brown to deep espresso hair, smooth to softly wavy, center/slightly off-center part with natural flyaways.\n"
+        "Body structure: Hourglass (36-28-36). Identity must remain identical (no face drift/morphing/beautification)."
+    )
+
     # -------------------- File helpers (Streamlit) --------------------
 
     def _filelike_to_data_url(self, uploaded_file) -> str:
