@@ -9,6 +9,28 @@ from master_dna import DEFAULT_MASTER_DNA
 load_dotenv()
 
 st.set_page_config(page_title="AI Prompt Studio", layout="wide")
+# --- Simple password gate (single-user) ---
+APP_PASSWORD = os.getenv("APP_PASSWORD", "").strip()
+
+if APP_PASSWORD:
+    if "auth_ok" not in st.session_state:
+        st.session_state.auth_ok = False
+
+    if not st.session_state.auth_ok:
+        st.title("AI Prompt Studio (Web)")
+        pw = st.text_input("Enter password", type="password")
+
+        if st.button("Login"):
+            if pw == APP_PASSWORD:
+                st.session_state.auth_ok = True
+                st.success("Logged in!")
+                st.rerun()
+            else:
+                st.error("Wrong password")
+
+        st.stop()
+# --- end password gate ---
+
 
 API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 MODEL_DEFAULT = os.getenv("OPENAI_MODEL", "gpt-4.1-mini").strip()
