@@ -11,32 +11,35 @@ class OpenAIService:
       - Supports Streamlit UploadedFile (file-like) via *_filelike methods
       - Robust JSON parsing & repair
       - Enforces Body structure: Hourglass (36-28-36)
+      - Uses COMPACT identity DNA for Poser to avoid length/token issues
     """
 
     def __init__(self, api_key: str, model: str = "gpt-4.1-mini"):
         self.client = OpenAI(api_key=api_key)
         self.model = model
 
-    def compact_master_dna_for_poser(self, master_dna: str) -> str:
-    """
-    Creates a short identity lock for Poser to avoid token/length issues.
-    Keeps key facial traits + age/ethnicity + hair + skin + hourglass.
-    """
-    # If user already pasted a short DNA, keep it.
-    s = (master_dna or "").strip()
-    if len(s) <= 700:
-        return s
+    # -------------------- Poser: compact DNA --------------------
 
-    return (
-        "LOCKED IDENTITY DNA (COMPACT) — DO NOT ALTER\n"
-        "24–26-year-old South Asian (Indian-origin) female. Warm fair-to-medium golden-olive complexion; realistic skin texture with visible pores.\n"
-        "Soft oval face, gently rounded cheeks, smooth feminine jawline, rounded chin.\n"
-        "Medium-large almond deep-brown eyes with visible lid creases; dark medium-thick brows with soft natural arch.\n"
-        "Straight proportionate nose with softly rounded refined tip.\n"
-        "Naturally full balanced lips with defined cupid’s bow; muted rosy-pink tone; genuine smile with realistic teeth.\n"
-        "Dark brown to deep espresso hair, smooth to softly wavy, center/slightly off-center part with natural flyaways.\n"
-        "Body structure: Hourglass (36-28-36). Identity must remain identical (no face drift/morphing/beautification)."
-    )
+    def compact_master_dna_for_poser(self, master_dna: str) -> str:
+        """
+        Creates a short identity lock for Poser to avoid length/token issues.
+        Keeps key facial traits + age/ethnicity + hair + skin + hourglass.
+        If the provided DNA is already short, returns it unchanged.
+        """
+        s = (master_dna or "").strip()
+        if len(s) <= 700:
+            return s
+
+        return (
+            "LOCKED IDENTITY DNA (COMPACT) — DO NOT ALTER\n"
+            "24–26-year-old South Asian (Indian-origin) female. Warm fair-to-medium golden-olive complexion; realistic skin texture with visible pores.\n"
+            "Soft oval face, gently rounded cheeks, smooth feminine jawline, rounded chin.\n"
+            "Medium-large almond deep-brown eyes with visible lid creases; dark medium-thick brows with soft natural arch.\n"
+            "Straight proportionate nose with softly rounded refined tip.\n"
+            "Naturally full balanced lips with defined cupid’s bow; muted rosy-pink tone; genuine smile with realistic teeth.\n"
+            "Dark brown to deep espresso hair, smooth to softly wavy, center/slightly off-center part with natural flyaways.\n"
+            "Body structure: Hourglass (36-28-36). Identity must remain identical (no face drift/morphing/beautification)."
+        )
 
     # -------------------- File helpers (Streamlit) --------------------
 
@@ -84,7 +87,7 @@ class OpenAIService:
                     i += 1
                     continue
 
-                if ch == "\\":
+                if ch == "\\":  # escape char
                     out.append(ch)
                     esc = True
                     i += 1
@@ -94,7 +97,7 @@ class OpenAIService:
                     nxt = self._next_nonspace(s, i + 1)
                     # If next non-space isn't a JSON delimiter, treat as internal quote and escape it
                     if nxt and nxt not in [",", "}", "]"]:
-                        out.append('\\"')
+                        out.append('\\\"')
                         i += 1
                         continue
 
@@ -280,6 +283,9 @@ class OpenAIService:
         return self.poser_variations_data_url(data_url, master_dna, pose_style)
 
     def poser_variations_data_url(self, data_url: str, master_dna: str, pose_style: str) -> Dict[str, Any]:
+        # Use compact identity DNA for poser to reduce token/length issues
+        compact_dna = self.compact_master_dna_for_poser(master_dna)
+
         instructions = (
             "You are an expert prompt engineer.\n"
             "Analyze the image and generate 5 new prompts that keep EVERYTHING the same:\n"
@@ -293,6 +299,7 @@ class OpenAIService:
             "Rules:\n"
             "- Each full_prompt MUST start with MASTER DNA verbatim.\n"
             "- Each full_prompt MUST include: 'Body structure: Hourglass (36-28-36)'.\n"
+            "- Each full_prompt must be concise (max ~1200 characters). Do NOT add long explanations.\n"
             "- IMPORTANT: Use \\n for newlines and escape quotes as \\\" in JSON strings.\n"
             "Safety: keep it tasteful and safe-for-work."
         )
@@ -305,7 +312,7 @@ class OpenAIService:
                         "type": "input_text",
                         "text": (
                             "MASTER DNA (must be inserted verbatim at top of each full_prompt):\n"
-                            f"{master_dna}\n\n"
+                            f"{compact_dna}\n\n"
                             f"Pose style to target: {pose_style}\n\n"
                             "Now analyze the image and create 5 pose prompts."
                         ),
@@ -315,4 +322,4 @@ class OpenAIService:
             }
         ]
 
-        return self._call_json(input_items, instructions, max_output_tokens=1600)
+        return self._call_json(input_items, instructions, max_output_tokens=1500)
