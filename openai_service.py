@@ -19,6 +19,48 @@ class OpenAIService:
         self.client = OpenAI(api_key=api_key)
         self.model = model
 
+    def captions_generate_filelike(self, uploaded_file, style: str = "Engaging") -> Dict[str, Any]:
+    data_url = self._filelike_to_data_url(uploaded_file)
+    return self.captions_generate_data_url(data_url, style)
+
+def captions_generate_data_url(self, data_url: str, style: str = "Engaging") -> Dict[str, Any]:
+    instructions = (
+        "You are a social media caption writer.\n"
+        "Analyze the image and write ONE Instagram caption that is detailed, engaging, and uses lots of emojis.\n"
+        "Also provide EXACTLY 4 hashtags that are relevant to the image.\n\n"
+        "Return ONLY valid JSON with keys:\n"
+        "caption (string), hashtags (array of exactly 4 strings).\n\n"
+        "Rules:\n"
+        "- Keep it safe-for-work.\n"
+        "- No markdown.\n"
+        "- Hashtags must start with #.\n"
+    )
+
+    input_items = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "input_text", "text": f"Caption style: {style}\nReturn JSON only."},
+                {"type": "input_image", "image_url": data_url, "detail": "high"},
+            ],
+        }
+    ]
+
+    data = self._call_json(input_items, instructions, max_output_tokens=600)
+
+    # Normalize output
+    caption = (data.get("caption") or "").strip()
+    hashtags = data.get("hashtags") or []
+    if not isinstance(hashtags, list):
+        hashtags = []
+    hashtags = [str(h).strip() for h in hashtags][:4]
+
+    # Force exactly 4 hashtags if model returns less
+    while len(hashtags) < 4:
+        hashtags.append("#instagram")
+
+    return {"caption": caption, "hashtags": hashtags}
+
     # -------------------- Identity helpers --------------------
 
     def compact_master_dna_for_poser(self, master_dna: str) -> str:
