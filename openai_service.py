@@ -19,11 +19,11 @@ class OpenAIService:
         self.client = OpenAI(api_key=api_key)
         self.model = model
 
-    def captions_generate_filelike(self, uploaded_file, style: str = "Engaging") -> Dict[str, Any]:
+    def captions_generate_filelike(self, uploaded_file, style: str = "Engaging", language: str = "English") -> Dict[str, Any]:
     data_url = self._filelike_to_data_url(uploaded_file)
-    return self.captions_generate_data_url(data_url, style)
+    return self.captions_generate_data_url(data_url, style, language)
 
-def captions_generate_data_url(self, data_url: str, style: str = "Engaging") -> Dict[str, Any]:
+    def captions_generate_data_url(self, data_url: str, style: str = "Engaging", language: str = "English") -> Dict[str, Any]:
     instructions = (
         "You are a social media caption writer.\n"
         "Analyze the image and write ONE Instagram caption that is detailed, engaging, and uses lots of emojis.\n"
@@ -34,32 +34,46 @@ def captions_generate_data_url(self, data_url: str, style: str = "Engaging") -> 
         "- Keep it safe-for-work.\n"
         "- No markdown.\n"
         "- Hashtags must start with #.\n"
+        "- Language must match the user's choice.\n"
     )
 
     input_items = [
         {
             "role": "user",
             "content": [
-                {"type": "input_text", "text": f"Caption style: {style}\nReturn JSON only."},
+                {
+                    "type": "input_text",
+                    "text": (
+                        f"Caption style: {style}\n"
+                        f"Language: {language}\n"
+                        "Guidance:\n"
+                        "- English: natural Instagram English.\n"
+                        "- Hindi: Devanagari Hindi.\n"
+                        "- Hinglish: Hindi + English mix in Roman script.\n"
+                        "Return JSON only."
+                    ),
+                },
                 {"type": "input_image", "image_url": data_url, "detail": "high"},
             ],
         }
     ]
 
-    data = self._call_json(input_items, instructions, max_output_tokens=600)
+    data = self._call_json(input_items, instructions, max_output_tokens=650)
 
-    # Normalize output
     caption = (data.get("caption") or "").strip()
     hashtags = data.get("hashtags") or []
     if not isinstance(hashtags, list):
         hashtags = []
-    hashtags = [str(h).strip() for h in hashtags][:4]
+    hashtags = [str(h).strip() for h in hashtags if str(h).strip()][:4]
 
-    # Force exactly 4 hashtags if model returns less
     while len(hashtags) < 4:
         hashtags.append("#instagram")
 
+    # ensure hashtags start with #
+    hashtags = [h if h.startswith("#") else f"#{h}" for h in hashtags][:4]
+
     return {"caption": caption, "hashtags": hashtags}
+
 
     # -------------------- Identity helpers --------------------
 
