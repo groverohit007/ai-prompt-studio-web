@@ -5,6 +5,23 @@ from dotenv import load_dotenv
 
 from openai_service import OpenAIService
 from master_dna import DEFAULT_MASTER_DNA
+import streamlit.components.v1 as components
+
+def copy_button(label: str, text_to_copy: str, key: str):
+    # Renders a real clipboard-copy button in the browser
+    safe_text = (text_to_copy or "").replace("\\", "\\\\").replace("`", "\\`").replace("${", "\\${")
+    components.html(
+        f"""
+        <div style="margin: 6px 0;">
+          <button style="padding:8px 12px; border-radius:8px; border:1px solid #ccc; cursor:pointer;"
+            onclick="navigator.clipboard.writeText(`{safe_text}`)">
+            {label}
+          </button>
+        </div>
+        """,
+        height=55,
+        key=key,
+    )
 
 load_dotenv()
 
@@ -179,21 +196,47 @@ with tabs[2]:
 # ---------------- Captions ----------------
 with tabs[3]:
     st.subheader("Captions (Instagram)")
-    cap_img = st.file_uploader("Upload a photo for caption", type=["png", "jpg", "jpeg", "webp"], key="caption_upload")
-    style = st.selectbox("Caption style", ["Engaging", "Funny", "Romantic", "Luxury", "Motivational", "Spiritual"], index=0)
+
+    cap_img = st.file_uploader(
+        "Upload a photo for caption",
+        type=["png", "jpg", "jpeg", "webp"],
+        key="caption_upload"
+    )
+
+    colA, colB = st.columns(2)
+    with colA:
+        style = st.selectbox(
+            "Caption style",
+            ["Engaging", "Funny", "Romantic", "Luxury", "Motivational", "Spiritual"],
+            index=0
+        )
+    with colB:
+        language = st.radio(
+            "Language",
+            ["English", "Hinglish", "Hindi"],
+            horizontal=True
+        )
 
     if cap_img:
         st.image(cap_img, caption="Uploaded photo", use_container_width=True)
 
         if st.button("Generate Caption", key="caption_btn"):
             with st.spinner("Writing caption..."):
-                out = svc.captions_generate_filelike(cap_img, style)
+                out = svc.captions_generate_filelike(cap_img, style=style, language=language)
 
-            caption = out.get("caption", "")
-            hashtags = out.get("hashtags", [])
+            st.session_state.caption_out = out  # store result for copy buttons
 
-            st.text_area("Caption", value=caption, height=220)
-            st.text_input("Hashtags (4)", value=" ".join(hashtags))
+    out = st.session_state.get("caption_out")
+    if out:
+        caption = out.get("caption", "")
+        hashtags = out.get("hashtags", [])
+        hashtags_text = " ".join(hashtags)
+
+        st.text_area("Caption", value=caption, height=220, key="caption_text")
+        copy_button("📋 Copy Caption", caption, key="copy_caption_btn")
+
+        st.text_input("Hashtags (4)", value=hashtags_text, key="hashtags_text")
+        copy_button("📋 Copy Hashtags", hashtags_text, key="copy_hashtags_btn")
 
 # ---------------- Settings ----------------
 with tabs[4]:
