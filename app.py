@@ -7,21 +7,34 @@ from openai_service import OpenAIService
 from master_dna import DEFAULT_MASTER_DNA
 import streamlit.components.v1 as components
 
-def copy_button(label: str, text_to_copy: str, key: str):
-    # Renders a real clipboard-copy button in the browser
-    safe_text = (text_to_copy or "").replace("\\", "\\\\").replace("`", "\\`").replace("${", "\\${")
+def copy_button(label: str, text_to_copy: str):
+    """Renders a real clipboard-copy button in the browser (Streamlit Cloud safe)."""
+    import html
+    import uuid
+
+    safe = html.escape(text_to_copy or "")
+    btn_id = f"copy_{uuid.uuid4().hex}"
+
     components.html(
         f"""
         <div style="margin: 6px 0;">
-          <button style="padding:8px 12px; border-radius:8px; border:1px solid #ccc; cursor:pointer;"
-            onclick="navigator.clipboard.writeText(`{safe_text}`)">
+          <button id="{btn_id}"
+            style="padding:8px 12px; border-radius:8px; border:1px solid #ccc; cursor:pointer;">
             {label}
           </button>
+          <script>
+            const btn = document.getElementById("{btn_id}");
+            btn.addEventListener("click", async () => {{
+              await navigator.clipboard.writeText("{safe}");
+              btn.innerText = "✅ Copied!";
+              setTimeout(() => btn.innerText = "{label}", 1200);
+            }});
+          </script>
         </div>
         """,
-        height=55,
-        key=key,
+        height=60,
     )
+
 
 load_dotenv()
 
@@ -233,10 +246,10 @@ with tabs[3]:
         hashtags_text = " ".join(hashtags)
 
         st.text_area("Caption", value=caption, height=220, key="caption_text")
-        copy_button("📋 Copy Caption", caption, key="copy_caption_btn")
+        copy_button("📋 Copy Caption", caption)
 
         st.text_input("Hashtags (4)", value=hashtags_text, key="hashtags_text")
-        copy_button("📋 Copy Hashtags", hashtags_text, key="copy_hashtags_btn")
+        copy_button("📋 Copy Hashtags", hashtags_text)
 
 # ---------------- Settings ----------------
 with tabs[4]:
