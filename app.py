@@ -55,7 +55,7 @@ svc = OpenAIService(api_key=API_KEY, model=st.session_state.model)
 st.sidebar.header("App")
 st.session_state.model = st.sidebar.text_input("Model", value=st.session_state.model)
 
-tabs = st.tabs(["Cloner", "Prompter", "Poser", "Settings"])
+tabs = st.tabs(["Cloner", "Prompter", "Poser", "Captions", "Settings"])
 
 # ---------------- Cloner ----------------
 with tabs[0]:
@@ -176,8 +176,27 @@ with tabs[2]:
 
             st.text_area("Selected Prompt", value=full, height=420)
 
-# ---------------- Settings ----------------
+# ---------------- Captions ----------------
 with tabs[3]:
+    st.subheader("Captions (Instagram)")
+    cap_img = st.file_uploader("Upload a photo for caption", type=["png", "jpg", "jpeg", "webp"], key="caption_upload")
+    style = st.selectbox("Caption style", ["Engaging", "Funny", "Romantic", "Luxury", "Motivational", "Spiritual"], index=0)
+
+    if cap_img:
+        st.image(cap_img, caption="Uploaded photo", use_container_width=True)
+
+        if st.button("Generate Caption", key="caption_btn"):
+            with st.spinner("Writing caption..."):
+                out = svc.captions_generate_filelike(cap_img, style)
+
+            caption = out.get("caption", "")
+            hashtags = out.get("hashtags", [])
+
+            st.text_area("Caption", value=caption, height=220)
+            st.text_input("Hashtags (4)", value=" ".join(hashtags))
+
+# ---------------- Settings ----------------
+with tabs[4]:
     st.subheader("Settings (Master DNA / Master Prompt)")
     st.session_state.master_prompt = st.text_area(
         "Master DNA / Master Prompt (used everywhere)",
