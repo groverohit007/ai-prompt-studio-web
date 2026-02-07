@@ -13,67 +13,78 @@ class OpenAIService:
       - Enforces Body structure: Hourglass (36-28-36)
       - POSER returns *compact JSON* (no giant full_prompt strings) to avoid truncation/JSON issues.
         The UI builds the final full prompt locally.
+      - Captions: returns caption + exactly 4 hashtags, supports English/Hinglish/Hindi.
     """
 
     def __init__(self, api_key: str, model: str = "gpt-4.1-mini"):
         self.client = OpenAI(api_key=api_key)
         self.model = model
 
-    def captions_generate_filelike(self, uploaded_file, style: str = "Engaging", language: str = "English") -> Dict[str, Any]:
-    data_url = self._filelike_to_data_url(uploaded_file)
-    return self.captions_generate_data_url(data_url, style, language)
+    # -------------------- CAPTIONS --------------------
 
-    def captions_generate_data_url(self, data_url: str, style: str = "Engaging", language: str = "English") -> Dict[str, Any]:
-    instructions = (
-        "You are a social media caption writer.\n"
-        "Analyze the image and write ONE Instagram caption that is detailed, engaging, and uses lots of emojis.\n"
-        "Also provide EXACTLY 4 hashtags that are relevant to the image.\n\n"
-        "Return ONLY valid JSON with keys:\n"
-        "caption (string), hashtags (array of exactly 4 strings).\n\n"
-        "Rules:\n"
-        "- Keep it safe-for-work.\n"
-        "- No markdown.\n"
-        "- Hashtags must start with #.\n"
-        "- Language must match the user's choice.\n"
-    )
+    def captions_generate_filelike(
+        self,
+        uploaded_file,
+        style: str = "Engaging",
+        language: str = "English",
+    ) -> Dict[str, Any]:
+        data_url = self._filelike_to_data_url(uploaded_file)
+        return self.captions_generate_data_url(data_url, style, language)
 
-    input_items = [
-        {
-            "role": "user",
-            "content": [
-                {
-                    "type": "input_text",
-                    "text": (
-                        f"Caption style: {style}\n"
-                        f"Language: {language}\n"
-                        "Guidance:\n"
-                        "- English: natural Instagram English.\n"
-                        "- Hindi: Devanagari Hindi.\n"
-                        "- Hinglish: Hindi + English mix in Roman script.\n"
-                        "Return JSON only."
-                    ),
-                },
-                {"type": "input_image", "image_url": data_url, "detail": "high"},
-            ],
-        }
-    ]
+    def captions_generate_data_url(
+        self,
+        data_url: str,
+        style: str = "Engaging",
+        language: str = "English",
+    ) -> Dict[str, Any]:
+        instructions = (
+            "You are a social media caption writer.\n"
+            "Analyze the image and write ONE Instagram caption that is detailed, engaging, and uses lots of emojis.\n"
+            "Also provide EXACTLY 4 hashtags that are relevant to the image.\n\n"
+            "Return ONLY valid JSON with keys:\n"
+            "caption (string), hashtags (array of exactly 4 strings).\n\n"
+            "Rules:\n"
+            "- Keep it safe-for-work.\n"
+            "- No markdown.\n"
+            "- Hashtags must start with #.\n"
+            "- Language must match the user's choice.\n"
+        )
 
-    data = self._call_json(input_items, instructions, max_output_tokens=650)
+        input_items = [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "input_text",
+                        "text": (
+                            f"Caption style: {style}\n"
+                            f"Language: {language}\n"
+                            "Guidance:\n"
+                            "- English: natural Instagram English.\n"
+                            "- Hindi: Devanagari Hindi.\n"
+                            "- Hinglish: Hindi + English mix in Roman script.\n"
+                            "Return JSON only."
+                        ),
+                    },
+                    {"type": "input_image", "image_url": data_url, "detail": "high"},
+                ],
+            }
+        ]
 
-    caption = (data.get("caption") or "").strip()
-    hashtags = data.get("hashtags") or []
-    if not isinstance(hashtags, list):
-        hashtags = []
-    hashtags = [str(h).strip() for h in hashtags if str(h).strip()][:4]
+        data = self._call_json(input_items, instructions, max_output_tokens=650)
 
-    while len(hashtags) < 4:
-        hashtags.append("#instagram")
+        caption = (data.get("caption") or "").strip()
+        hashtags = data.get("hashtags") or []
+        if not isinstance(hashtags, list):
+            hashtags = []
+        hashtags = [str(h).strip() for h in hashtags if str(h).strip()][:4]
 
-    # ensure hashtags start with #
-    hashtags = [h if h.startswith("#") else f"#{h}" for h in hashtags][:4]
+        while len(hashtags) < 4:
+            hashtags.append("#instagram")
 
-    return {"caption": caption, "hashtags": hashtags}
+        hashtags = [h if h.startswith("#") else f"#{h}" for h in hashtags][:4]
 
+        return {"caption": caption, "hashtags": hashtags}
 
     # -------------------- Identity helpers --------------------
 
@@ -154,7 +165,7 @@ class OpenAIService:
                     nxt = self._next_nonspace(s, i + 1)
                     # If next non-space isn't a JSON delimiter, treat as internal quote and escape it
                     if nxt and nxt not in [",", "}", "]"]:
-                        out.append('\\\"')
+                        out.append('\\"')
                         i += 1
                         continue
 
@@ -223,7 +234,7 @@ class OpenAIService:
         start = cleaned.find("{")
         end = cleaned.rfind("}")
         if start != -1 and end != -1 and end > start:
-            maybe = cleaned[start:end+1]
+            maybe = cleaned[start:end + 1]
             try:
                 return json.loads(maybe)
             except json.JSONDecodeError:
@@ -389,11 +400,13 @@ class OpenAIService:
         for p in poses[:5]:
             if not isinstance(p, dict):
                 continue
-            prompts.append({
-                "pose_name": (p.get("pose_name") or "").strip(),
-                "pose_description": (p.get("pose_description") or "").strip(),
-                "full_prompt": "",  # UI will build this locally
-            })
+            prompts.append(
+                {
+                    "pose_name": (p.get("pose_name") or "").strip(),
+                    "pose_description": (p.get("pose_description") or "").strip(),
+                    "full_prompt": "",  # UI will build this locally
+                }
+            )
 
         return {
             "scene_lock": scene_lock,
