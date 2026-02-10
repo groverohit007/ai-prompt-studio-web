@@ -408,13 +408,14 @@ class OpenAIService:
         for p in poses[:5]:
             if not isinstance(p, dict):
                 continue
-            prompts.append(
-                {
-                    "pose_name": (p.get("pose_name") or "").strip(),
-                    "pose_description": (p.get("pose_description") or "").strip(),
-                    "full_prompt": "",  # UI will build this locally
-                }
-            )
+           prompts.append(
+    {
+        "pose_name": (p.get("pose_name") or "").strip(),
+        "pose_description": (p.get("pose_description") or "").strip(),
+        "facial_expression": (p.get("facial_expression") or "").strip(),
+        "full_prompt": "",
+    }
+)
 
         return {
             "scene_lock": scene_lock,
