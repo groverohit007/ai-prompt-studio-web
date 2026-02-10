@@ -154,7 +154,11 @@ with tabs[1]:
 with tabs[2]:
     st.subheader("Poser (5 new pose prompts)")
     img2 = st.file_uploader("Upload AI model image", type=["png", "jpg", "jpeg", "webp"], key="poser_upload")
-    pose_style = st.selectbox("Pose style", ["Casual", "Elegant", "Sensual (tasteful)", "Fitness", "Traditional", "Street style"], index=0)
+    pose_style = st.selectbox(
+    "Pose style",
+    ["Casual", "Elegant", "Sensual (tasteful)", "Romantic", "Confident", "Fitness", "Traditional", "Street style"],
+    index=0
+)
 
     if img2:
         st.image(img2, caption="Uploaded AI model image", use_container_width=True)
