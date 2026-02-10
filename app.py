@@ -182,6 +182,7 @@ with tabs[2]:
 
             pose_name = (picked.get("pose_name") or "").strip()
             pose_desc = (picked.get("pose_description") or "").strip()
+            face_expr = (picked.get("facial_expression") or "").strip()
 
             # Build the final usable prompt locally (prevents token/JSON break issues)
             full = "\n".join([
