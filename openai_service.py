@@ -39,17 +39,9 @@ class OpenAIService:
     ) -> Dict[str, Any]:
         instructions = (
             "You are a social media caption writer.\n"
-           "Analyze the image and create 5 different POSES with matching facial expressions.\n\n"
-           "You MUST keep: same identity, same face structure, same body, same attire, same makeup style, same background, same lighting, same camera style.\n"
-           "You may change:\n"
-           "- Body pose\n"
-           "- Head angle\n"
-           "- Facial expression\n"
-           "- Eye direction\n"
-           "- Hand placement\n\n"
-           "Facial expressions must match the pose style and mood.\n"
-          "For sensual or romantic styles, use soft, confident, emotionally expressive facial cues.\n\n"
-          "Do NOT change identity, bone structure, or physical features.\n"
+            "Analyze the image and write ONE Instagram caption that is detailed, engaging, and uses lots of emojis.\n"
+            "Also provide EXACTLY 4 hashtags that are relevant to the image.\n\n"
+            "Return ONLY valid JSON with keys:\n"
             "caption (string), hashtags (array of exactly 4 strings).\n\n"
             "Rules:\n"
             "- Keep it safe-for-work.\n"
@@ -112,7 +104,7 @@ class OpenAIService:
             "Soft oval face, gently rounded cheeks, smooth feminine jawline, rounded chin.\n"
             "Medium-large almond deep-brown eyes with visible lid creases; dark medium-thick brows with soft natural arch.\n"
             "Straight proportionate nose with softly rounded refined tip.\n"
-            "Naturally full balanced lips with defined cupid’s bow; muted rosy-pink tone; genuine smile with realistic teeth.\n"
+            "Naturally full balanced lips with defined cupid’s bow; muted rosy-pink tone.\n"
             "Dark brown to deep espresso hair, smooth to softly wavy, center/slightly off-center part with natural flyaways.\n"
             "Body structure: Hourglass (36-28-36). Identity must remain identical (no face drift/morphing/beautification)."
         )
@@ -364,16 +356,20 @@ class OpenAIService:
 
         instructions = (
             "You are an expert prompt engineer.\n"
-            "Analyze the image and create 5 different POSES while keeping everything else identical.\n\n"
-            "You MUST keep: same identity, same face, same body, same attire, same makeup, same background, same lighting, same camera style.\n"
-            "Only change: the pose.\n\n"
+            "Analyze the image and create 5 different POSES with matching facial expressions.\n\n"
+            "You MUST keep: same identity, same face structure, same body, same attire, same makeup style, "
+            "same background, same lighting, same camera style.\n"
+            "You may change: body pose, head angle, facial expression, eye direction, hand placement.\n\n"
+            "Facial expressions must match the pose style and mood.\n"
+            "For sensual/romantic styles: soft, confident, emotionally expressive facial cues (tasteful, safe-for-work).\n\n"
             "Return ONLY valid JSON with keys:\n"
             "scene_lock (string), pose_style (string), poses (array of exactly 5 objects).\n\n"
-            "Each object must have:\n"
+            "Each pose object must have:\n"
             "- pose_name (short)\n"
-            "- pose_description (1–2 sentences, specific and visual)\n\n"
+            "- pose_description (1–2 sentences, body position only)\n"
+            "- facial_expression (short phrase describing emotion + eyes)\n\n"
             "Rules:\n"
-            "- DO NOT include long full prompts, only pose_name and pose_description.\n"
+            "- DO NOT include long full prompts.\n"
             "- Keep it tasteful and safe-for-work.\n"
             "- IMPORTANT: Use \\n for newlines and escape quotes as \\\" in JSON strings.\n"
         )
@@ -398,7 +394,7 @@ class OpenAIService:
 
         data = self._call_json(input_items, instructions, max_output_tokens=900)
 
-        # Normalize to the structure the UI expects: prompts=[{pose_name, pose_description, full_prompt}]
+        # Normalize to the structure the UI expects: prompts=[{pose_name, pose_description, facial_expression, full_prompt}]
         scene_lock = (data.get("scene_lock") or "").strip()
         poses = data.get("poses") or data.get("prompts") or []
         if not isinstance(poses, list):
@@ -408,14 +404,14 @@ class OpenAIService:
         for p in poses[:5]:
             if not isinstance(p, dict):
                 continue
-           prompts.append(
-    {
-        "pose_name": (p.get("pose_name") or "").strip(),
-        "pose_description": (p.get("pose_description") or "").strip(),
-        "facial_expression": (p.get("facial_expression") or "").strip(),
-        "full_prompt": "",
-    }
-)
+            prompts.append(
+                {
+                    "pose_name": (p.get("pose_name") or "").strip(),
+                    "pose_description": (p.get("pose_description") or "").strip(),
+                    "facial_expression": (p.get("facial_expression") or "").strip(),
+                    "full_prompt": "",  # UI will build this locally
+                }
+            )
 
         return {
             "scene_lock": scene_lock,
