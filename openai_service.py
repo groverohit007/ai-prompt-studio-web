@@ -419,3 +419,268 @@ class OpenAIService:
             "prompts": prompts,
             "compact_master_dna": compact_dna,
         }
+
+    # -------------------- JSON Schema (STRICT) --------------------
+
+    def _call_json_schema(
+        self,
+        input_items: list,
+        instructions: str,
+        schema_name: str,
+        schema: Dict[str, Any],
+        max_output_tokens: int = 1400,
+    ) -> Dict[str, Any]:
+        """
+        Strict JSON Schema output via Responses API.
+        Falls back to json_object if json_schema not supported by your SDK/model.
+        """
+        try:
+            resp = self.client.responses.create(
+                model=self.model,
+                instructions=instructions,
+                input=input_items,
+                max_output_tokens=max_output_tokens,
+                response_format={
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": schema_name,
+                        "schema": schema,
+                        "strict": True,
+                    },
+                },
+            )
+            return self._extract_json_obj(resp.output_text)
+        except TypeError:
+            # Older SDKs may not support json_schema response_format
+            resp = self.client.responses.create(
+                model=self.model,
+                instructions=instructions + "\nReturn ONLY JSON. No markdown. No extra text.",
+                input=input_items,
+                max_output_tokens=max_output_tokens,
+                response_format={"type": "json_object"},
+            )
+            return self._extract_json_obj(resp.output_text)
+
+
+    # -------------------- PERFECT CLONER (STRICT SCHEMA) --------------------
+
+    def perfectcloner_analyze_filelike(self, uploaded_file, master_dna: str) -> Dict[str, Any]:
+        data_url = self._filelike_to_data_url(uploaded_file)
+        return self.perfectcloner_analyze_data_url(data_url, master_dna)
+
+    def perfectcloner_analyze_data_url(self, data_url: str, master_dna: str) -> Dict[str, Any]:
+        """
+        Returns STRICT JSON according to schema.
+        Includes camera + lens + lighting + composition + an assembled recreation_prompt
+        containing a subject placeholder for later identity swap.
+        """
+        subject_placeholder = "[[SUBJECT:USER_FACE_AND_BODY]]"
+
+        schema: Dict[str, Any] = {
+            "type": "object",
+            "additionalProperties": False,
+            "required": [
+                "version",
+                "subject_placeholder",
+                "aspect_ratio",
+                "camera",
+                "lighting",
+                "composition",
+                "environment",
+                "subject_appearance",
+                "wardrobe",
+                "hair_and_makeup",
+                "props_and_objects",
+                "postprocessing",
+                "negative_prompt",
+                "recreation_prompt",
+                "insertion_instructions",
+                "notes",
+            ],
+            "properties": {
+                "version": {"type": "string"},
+                "subject_placeholder": {"type": "string"},
+                "aspect_ratio": {"type": "string", "description": "e.g., 9:16, 16:9, 1:1"},
+                "camera": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": [
+                        "shot_type",
+                        "camera_angle",
+                        "framing",
+                        "lens",
+                        "focus_and_dof",
+                        "exposure_guess",
+                    ],
+                    "properties": {
+                        "shot_type": {"type": "string"},
+                        "camera_angle": {"type": "string"},
+                        "framing": {"type": "string"},
+                        "lens": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "required": ["lens_type", "focal_length_guess"],
+                            "properties": {
+                                "lens_type": {"type": "string", "description": "e.g., phone lens, 35mm prime, 85mm prime"},
+                                "focal_length_guess": {"type": "string", "description": "e.g., 24mm, 35mm, 50mm, 85mm, phone-equivalent"},
+                                "aperture_guess": {"type": "string", "description": "e.g., f/1.8, f/2.8 (if inferable)"},
+                            },
+                        },
+                        "focus_and_dof": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "required": ["focus_target", "depth_of_field"],
+                            "properties": {
+                                "focus_target": {"type": "string", "description": "e.g., eyes, face"},
+                                "depth_of_field": {"type": "string", "description": "e.g., shallow/medium/deep + notes"},
+                            },
+                        },
+                        "exposure_guess": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "required": ["iso_guess", "shutter_guess", "wb_guess"],
+                            "properties": {
+                                "iso_guess": {"type": "string"},
+                                "shutter_guess": {"type": "string"},
+                                "wb_guess": {"type": "string", "description": "white balance / color temp guess"},
+                            },
+                        },
+                    },
+                },
+                "lighting": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["type", "direction", "softness", "contrast", "color_temperature", "shadow_character"],
+                    "properties": {
+                        "type": {"type": "string", "description": "e.g., window light, softbox, golden hour, mixed indoor"},
+                        "direction": {"type": "string"},
+                        "softness": {"type": "string"},
+                        "contrast": {"type": "string"},
+                        "color_temperature": {"type": "string"},
+                        "shadow_character": {"type": "string"},
+                    },
+                },
+                "composition": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["pose", "expression", "eye_direction", "body_orientation", "background_depth", "scene_layout"],
+                    "properties": {
+                        "pose": {"type": "string"},
+                        "expression": {"type": "string"},
+                        "eye_direction": {"type": "string"},
+                        "body_orientation": {"type": "string"},
+                        "background_depth": {"type": "string", "description": "blur level / DOF effect"},
+                        "scene_layout": {"type": "string", "description": "foreground/background arrangement and key elements placement"},
+                    },
+                },
+                "environment": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["location_type", "background_details", "visible_text", "time_of_day"],
+                    "properties": {
+                        "location_type": {"type": "string"},
+                        "background_details": {"type": "string"},
+                        "visible_text": {"type": "string", "description": "Any readable text; else 'none'"},
+                        "time_of_day": {"type": "string"},
+                    },
+                },
+                "subject_appearance": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["age_range", "skin_tone", "body_structure", "other_physical_notes"],
+                    "properties": {
+                        "age_range": {"type": "string"},
+                        "skin_tone": {"type": "string"},
+                        "body_structure": {"type": "string"},
+                        "other_physical_notes": {"type": "string"},
+                    },
+                },
+                "wardrobe": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["outfit", "colors_materials", "fit", "accessories_jewellery"],
+                    "properties": {
+                        "outfit": {"type": "string"},
+                        "colors_materials": {"type": "string"},
+                        "fit": {"type": "string"},
+                        "accessories_jewellery": {"type": "string"},
+                    },
+                },
+                "hair_and_makeup": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["hair", "makeup"],
+                    "properties": {
+                        "hair": {"type": "string"},
+                        "makeup": {"type": "string"},
+                    },
+                },
+                "props_and_objects": {
+                    "type": "string",
+                    "description": "Only what is clearly visible; else 'none'",
+                },
+                "postprocessing": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["style", "color_grade", "sharpness", "grain", "retouching"],
+                    "properties": {
+                        "style": {"type": "string", "description": "photoreal / cinematic / editorial etc."},
+                        "color_grade": {"type": "string"},
+                        "sharpness": {"type": "string"},
+                        "grain": {"type": "string"},
+                        "retouching": {"type": "string"},
+                    },
+                },
+                "negative_prompt": {"type": "string"},
+                "recreation_prompt": {"type": "string"},
+                "insertion_instructions": {"type": "string"},
+                "notes": {"type": "string"},
+            },
+        }
+
+        instructions = (
+            "You are an expert prompt engineer for photorealistic image recreation.\n"
+            "Analyze the reference image and output a SINGLE JSON object matching the provided JSON Schema.\n"
+            "Rules:\n"
+            f"- subject_placeholder MUST be exactly: {subject_placeholder}\n"
+            "- Do not invent objects not visible.\n"
+            "- Keep it safe-for-work.\n"
+            "- Ensure the returned JSON conforms to the schema exactly.\n\n"
+            "CRITICAL: Build `recreation_prompt` as a ready-to-use generation prompt that:\n"
+            "- starts with MASTER DNA verbatim\n"
+            f"- uses {subject_placeholder} as the ONLY subject identity reference\n"
+            "- includes camera + lens + lighting + composition in natural language\n"
+            "- preserves the reference scene as closely as possible\n"
+        )
+
+        input_items = [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "input_text",
+                        "text": (
+                            "MASTER DNA (must be inserted verbatim at the top of recreation_prompt):\n"
+                            f"{master_dna}\n\n"
+                            f"Subject placeholder token (must appear in JSON and in recreation_prompt): {subject_placeholder}\n"
+                            "Now analyze this reference image and return STRICT JSON per schema."
+                        ),
+                    },
+                    {"type": "input_image", "image_url": data_url, "detail": "high"},
+                ],
+            }
+        ]
+
+        data = self._call_json_schema(
+            input_items=input_items,
+            instructions=instructions,
+            schema_name="perfectcloner_prompt_package",
+            schema=schema,
+            max_output_tokens=1600,
+        )
+
+        # Hard enforcement for your existing preference (optional).
+        # If you DO NOT want to force hourglass here, remove these 2 lines.
+        # data["subject_appearance"]["body_structure"] = "Hourglass (36-28-36)"
+
+        return data
