@@ -192,92 +192,93 @@ else:
         _base_pil = Image.open(base_img).convert("RGB")
         _w, _h = _base_pil.size
 
+        # --- INDENTED BLOCK STARTS HERE ---
+        # Drawing mode controls
+        mode = st.radio(
+            "Mask drawing mode",
+            options=["Brush", "Rectangle", "Circle"],
+            index=0,
+            horizontal=True,
+            key="mask_mode",
+        )
+        drawing_mode = {"Brush": "freedraw", "Rectangle": "rect", "Circle": "circle"}[mode]
+
+        brush_size = st.slider("Brush size / Stroke width", min_value=5, max_value=120, value=35, step=1, key="mask_brush")
+        stroke_width = brush_size
+
+        feather = st.slider("Feather / blur edges (px)", min_value=0, max_value=80, value=12, step=1, key="mask_feather")
+        mask_threshold = st.slider("Mask threshold", min_value=0, max_value=255, value=1, step=1, key="mask_threshold")
+
+        # Undo support
+        if "mask_initial_drawing" not in st.session_state:
+            st.session_state["mask_initial_drawing"] = {"version": "4.4.0", "objects": []}
+
+        colu1, colu2, colu3 = st.columns([1, 1, 2])
+        with colu1:
+            if st.button("↩️ Undo last", key="undo_mask_btn"):
+                init = st.session_state.get("mask_initial_drawing") or {"version": "4.4.0", "objects": []}
+                objs = init.get("objects") or []
+                if len(objs) > 0:
+                    objs.pop()
+                    init["objects"] = objs
+                    st.session_state["mask_initial_drawing"] = init
+                st.session_state.pop("inp_generated_mask_bytes", None)
+                st.rerun()
+
+        with colu2:
+            if st.button("🧽 Clear mask", key="clear_mask_btn"):
+                st.session_state.pop("inp_generated_mask_bytes", None)
+                st.session_state["mask_initial_drawing"] = {"version": "4.4.0", "objects": []}
+                st.session_state.pop("mask_canvas", None)
+                st.rerun()
+
+        # Canvas call
+        canvas_result = st_canvas(
+            fill_color="rgba(255, 255, 255, 1.0)",
+            stroke_width=stroke_width,
+            stroke_color="rgba(255, 255, 255, 1.0)",
+            background_image=_base_pil,
+            update_streamlit=True,
+            height=_h,
+            width=_w,
+            drawing_mode=drawing_mode,
+            initial_drawing=st.session_state.get("mask_initial_drawing"),
+            key="mask_canvas",
+        )
+
+        if canvas_result.json_data is not None:
+            try:
+                st.session_state["mask_initial_drawing"] = canvas_result.json_data
+            except Exception:
+                pass
+
+        if canvas_result.image_data is not None:
+            rgba = canvas_result.image_data.astype(np.uint8)
+            alpha = rgba[:, :, 3]
+
+            painted = (alpha > mask_threshold).astype(np.uint8) * 255
+            mask_pil = Image.fromarray(painted, mode="L")
+
+            if feather and feather > 0:
+                mask_pil = mask_pil.filter(ImageFilter.GaussianBlur(radius=float(feather)))
+
+            st.image(mask_pil, caption="Generated mask (white=edit, black=keep)", use_container_width=True)
+
+            import io
+            buf = io.BytesIO()
+            mask_pil.save(buf, format="PNG")
+            st.session_state["inp_generated_mask_bytes"] = buf.getvalue()
+            st.success("Generated mask is ready and will be used automatically (no need to upload).")
+
+            st.download_button(
+                "⬇️ Download mask.png",
+                data=buf.getvalue(),
+                file_name="mask.png",
+                mime="image/png",
+                key="download_mask_btn",
+            )
+        # --- INDENTED BLOCK ENDS HERE ---
         
-# Drawing mode controls
-mode = st.radio(
-    "Mask drawing mode",
-    options=["Brush", "Rectangle", "Circle"],
-    index=0,
-    horizontal=True,
-    key="mask_mode",
-)
-drawing_mode = {"Brush": "freedraw", "Rectangle": "rect", "Circle": "circle"}[mode]
-
-brush_size = st.slider("Brush size / Stroke width", min_value=5, max_value=120, value=35, step=1, key="mask_brush")
-stroke_width = brush_size
-
-feather = st.slider("Feather / blur edges (px)", min_value=0, max_value=80, value=12, step=1, key="mask_feather")
-mask_threshold = st.slider("Mask threshold", min_value=0, max_value=255, value=1, step=1, key="mask_threshold")
-
-# Undo support: keep canvas objects list in session_state and rehydrate via initial_drawing
-if "mask_initial_drawing" not in st.session_state:
-    st.session_state["mask_initial_drawing"] = {"version": "4.4.0", "objects": []}
-
-colu1, colu2, colu3 = st.columns([1, 1, 2])
-with colu1:
-    if st.button("↩️ Undo last", key="undo_mask_btn"):
-        init = st.session_state.get("mask_initial_drawing") or {"version": "4.4.0", "objects": []}
-        objs = init.get("objects") or []
-        if len(objs) > 0:
-            objs.pop()
-            init["objects"] = objs
-            st.session_state["mask_initial_drawing"] = init
-        st.session_state.pop("inp_generated_mask_bytes", None)
-        st.experimental_rerun()
-
-with colu2:
-    if st.button("🧽 Clear mask", key="clear_mask_btn"):
-        st.session_state.pop("inp_generated_mask_bytes", None)
-        st.session_state["mask_initial_drawing"] = {"version": "4.4.0", "objects": []}
-        st.session_state.pop("mask_canvas", None)
-        st.experimental_rerun()
-
-# Canvas returns an RGBA image where painted pixels are in the stroke color
-canvas_result = st_canvas(
-    fill_color="rgba(255, 255, 255, 1.0)",
-    stroke_width=stroke_width,
-    stroke_color="rgba(255, 255, 255, 1.0)",
-    background_image=_base_pil,
-    update_streamlit=True,
-    height=_h,
-    width=_w,
-    drawing_mode=drawing_mode,
-    initial_drawing=st.session_state.get("mask_initial_drawing"),
-    key="mask_canvas",
-)
-
-if canvas_result.json_data is not None:
-    try:
-        st.session_state["mask_initial_drawing"] = canvas_result.json_data
-    except Exception:
-        pass
-
-if canvas_result.image_data is not None:
-    rgba = canvas_result.image_data.astype(np.uint8)
-    alpha = rgba[:, :, 3]
-
-    painted = (alpha > mask_threshold).astype(np.uint8) * 255
-    mask_pil = Image.fromarray(painted, mode="L")
-
-    if feather and feather > 0:
-        mask_pil = mask_pil.filter(ImageFilter.GaussianBlur(radius=float(feather)))
-
-    st.image(mask_pil, caption="Generated mask (white=edit, black=keep)", use_container_width=True)
-
-    import io
-    buf = io.BytesIO()
-    mask_pil.save(buf, format="PNG")
-    st.session_state["inp_generated_mask_bytes"] = buf.getvalue()
-    st.success("Generated mask is ready and will be used automatically (no need to upload).")
-
-    st.download_button(
-        "⬇️ Download mask.png",
-        data=buf.getvalue(),
-        file_name="mask.png",
-        mime="image/png",
-        key="download_mask_btn",
-    )
-
     def _b64_any(upl_or_bytes):
         if upl_or_bytes is None:
             return None
