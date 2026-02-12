@@ -244,7 +244,9 @@ class OpenAIService:
 
     def _call_json(self, input_items: list, instructions: str, max_output_tokens: int = 900) -> Dict[str, Any]:
         """
-        Try strict JSON mode if supported; fallback if not.
+        Structured JSON output via Responses API.
+        NOTE: In the Responses API, structured outputs are configured under `text.format`
+        (not `response_format`).
         """
         try:
             resp = self.client.responses.create(
@@ -252,11 +254,11 @@ class OpenAIService:
                 instructions=instructions,
                 input=input_items,
                 max_output_tokens=max_output_tokens,
-                response_format={"type": "json_object"},
+                text={"format": {"type": "json_object"}},
             )
             return self._extract_json_obj(resp.output_text)
         except TypeError:
-            # response_format not supported in some older openai libs
+            # Very old SDKs may not accept `text=...`
             resp = self.client.responses.create(
                 model=self.model,
                 instructions=instructions + "\nReturn ONLY JSON. No markdown. No extra text.",
@@ -266,6 +268,7 @@ class OpenAIService:
             return self._extract_json_obj(resp.output_text)
 
     # -------------------- CLONER --------------------
+
 
     def cloner_analyze_filelike(self, uploaded_file, master_dna: str) -> Dict[str, Any]:
         data_url = self._filelike_to_data_url(uploaded_file)
@@ -432,37 +435,49 @@ class OpenAIService:
     ) -> Dict[str, Any]:
         """
         Strict JSON Schema output via Responses API.
-        Falls back to json_object if json_schema not supported by your SDK/model.
+
+        In Responses API, structured outputs are configured under `text.format`.
+        If json_schema isn't supported by the chosen model / SDK, we fall back to json_object.
         """
+        # 1) Try strict JSON Schema
         try:
             resp = self.client.responses.create(
                 model=self.model,
                 instructions=instructions,
                 input=input_items,
                 max_output_tokens=max_output_tokens,
-                response_format={
-                    "type": "json_schema",
-                    "json_schema": {
-                        "name": schema_name,
-                        "schema": schema,
-                        "strict": True,
-                    },
+                text={
+                    "format": {
+                        "type": "json_schema",
+                        "json_schema": {
+                            "name": schema_name,
+                            "schema": schema,
+                            "strict": True,
+                        },
+                    }
                 },
             )
             return self._extract_json_obj(resp.output_text)
         except TypeError:
-            # Older SDKs may not support json_schema response_format
-            resp = self.client.responses.create(
-                model=self.model,
-                instructions=instructions + "\nReturn ONLY JSON. No markdown. No extra text.",
-                input=input_items,
-                max_output_tokens=max_output_tokens,
-                response_format={"type": "json_object"},
-            )
-            return self._extract_json_obj(resp.output_text)
+            # Old SDK: no `text=` argument
+            pass
+        except Exception:
+            # Model might not support json_schema; fall back
+            pass
+
+        # 2) Fallback: JSON object mode
+        resp = self.client.responses.create(
+            model=self.model,
+            instructions=instructions + "\nReturn ONLY JSON. No markdown. No extra text.",
+            input=input_items,
+            max_output_tokens=max_output_tokens,
+            text={"format": {"type": "json_object"}},
+        )
+        return self._extract_json_obj(resp.output_text)
 
 
     # -------------------- PERFECT CLONER (STRICT SCHEMA) --------------------
+
 
     def perfectcloner_analyze_filelike(self, uploaded_file, master_dna: str) -> Dict[str, Any]:
         data_url = self._filelike_to_data_url(uploaded_file)
