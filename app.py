@@ -1,6 +1,14 @@
 import os
 import json
+import base64
+from PIL import Image, ImageFilter
+import numpy as np
 import streamlit as st
+try:
+    from streamlit_drawable_canvas import st_canvas
+except Exception:
+    st_canvas = None
+
 from dotenv import load_dotenv
 
 from openai_service import OpenAIService
@@ -85,7 +93,7 @@ svc = OpenAIService(api_key=API_KEY, model=st.session_state.model)
 st.sidebar.header("App")
 st.session_state.model = st.sidebar.text_input("Model", value=st.session_state.model)
 
-tabs = st.tabs(["Cloner", "PerfectCloner", "Prompter", "Poser", "Captions", "Settings"])
+tabs = st.tabs(["Cloner", "PerfectCloner", "Inpainting", "Prompter", "Poser", "Captions", "Settings"])
 
 # ---------------- Cloner ----------------
 with tabs[0]:
@@ -106,7 +114,16 @@ with tabs[0]:
 # ---------------- PerfectCloner ----------------
 with tabs[1]:
     st.subheader("PerfectCloner (STRICT JSON Schema)")
-    st.caption("Uploads a reference image and returns a schema-validated prompt package (camera/lens/lighting/composition) with a subject placeholder for later identity swap.")
+    st.caption("Upload a reference image → get schema-validated prompt package (camera/lens/lighting/composition) with optional Master Identity Lock.")
+
+    identity_lock_choice = st.radio(
+        "Master Identity Lock",
+        options=["ON (keep identity consistent)", "OFF (no identity lock)"],
+        index=0,
+        horizontal=True,
+        key="pc_identity_lock",
+    )
+    identity_lock_on = identity_lock_choice.startswith("ON")
 
     pimg = st.file_uploader("Upload a reference image", type=["png", "jpg", "jpeg", "webp"], key="perfectcloner_upload")
 
@@ -114,17 +131,21 @@ with tabs[1]:
         st.image(pimg, caption="Reference image", use_container_width=True)
 
         if st.button("Analyze → Generate Perfect Prompt Package", key="perfectcloner_btn"):
-            with st.spinner("Analyzing image with strict JSON schema..."):
-                pkg = svc.perfectcloner_analyze_filelike(pimg, st.session_state.master_prompt)
+            with st.spinner("Analyzing image (strict schema)..."):
+                pkg = svc.perfectcloner_analyze_filelike(
+                    pimg,
+                    st.session_state.master_prompt,
+                    identity_lock=identity_lock_on,
+                )
 
             st.success("Done!")
 
             st.subheader("Prompt Package (JSON)")
             st.code(json.dumps(pkg, indent=2, ensure_ascii=False), language="json")
 
-            recreation_prompt = pkg.get("recreation_prompt", "") or ""
-            negative_prompt = pkg.get("negative_prompt", "") or ""
-            placeholder = pkg.get("subject_placeholder", "")
+            recreation_prompt = (pkg.get("recreation_prompt") or "").strip()
+            negative_prompt = (pkg.get("negative_prompt") or "").strip()
+            placeholder = (pkg.get("subject_placeholder") or "").strip()
 
             st.subheader("Recreation Prompt")
             st.text_area("recreation_prompt", value=recreation_prompt, height=320, key="pc_recreation_prompt")
@@ -138,11 +159,172 @@ with tabs[1]:
             st.code(placeholder or "[[SUBJECT:USER_FACE_AND_BODY]]", language="text")
 
             st.subheader("Insertion instructions")
-            st.info(pkg.get("insertion_instructions", "") or "")
+            st.info((pkg.get("insertion_instructions") or "").strip())
+
+# ---------------- Inpainting ----------------
+with tabs[2]:
+    st.subheader("Inpainting (near-identical edits — template for Gemini Nano Banana Pro)")
+    st.caption("This tab does NOT generate images. It builds a JSON request template you can send to Gemini later (reference image + mask + identity image + prompt).")
+
+    base_img = st.file_uploader("Base image (the reference you want to keep)", type=["png", "jpg", "jpeg", "webp"], key="inp_base")
+    mask_img = st.file_uploader("Mask image (white=edit, black=keep). Optional but recommended.", type=["png", "jpg", "jpeg", "webp"], key="inp_mask")
+    id_img = st.file_uploader("Identity image (your face/body reference)", type=["png", "jpg", "jpeg", "webp"], key="inp_id")
+
+    edit_prompt = st.text_area(
+        "Edit prompt (describe what to change in the masked region; keep everything else identical)",
+        value="Replace the person with [[SUBJECT:USER_FACE_AND_BODY]] while keeping pose, lighting, camera angle, background, and color grading identical.",
+        height=160,
+        key="inp_prompt",
+    )
+
+
+st.markdown("### Create mask helper (optional)")
+st.caption("Draw white over the areas you want to edit (face/body). Everything else will be kept as-is. "
+           "You can download the generated mask and upload it in the Mask uploader above.")
+
+if base_img is None:
+    st.info("Upload a base image above to enable the mask editor.")
+else:
+    if st_canvas is None:
+        st.warning("Mask editor requires `streamlit-drawable-canvas`. Add it to requirements.txt: `streamlit-drawable-canvas`")
+    else:
+        # Load base image for background
+        _base_pil = Image.open(base_img).convert("RGB")
+        _w, _h = _base_pil.size
+
+        
+# Drawing mode controls
+mode = st.radio(
+    "Mask drawing mode",
+    options=["Brush", "Rectangle", "Circle"],
+    index=0,
+    horizontal=True,
+    key="mask_mode",
+)
+drawing_mode = {"Brush": "freedraw", "Rectangle": "rect", "Circle": "circle"}[mode]
+
+brush_size = st.slider("Brush size / Stroke width", min_value=5, max_value=120, value=35, step=1, key="mask_brush")
+stroke_width = brush_size
+
+feather = st.slider("Feather / blur edges (px)", min_value=0, max_value=80, value=12, step=1, key="mask_feather")
+mask_threshold = st.slider("Mask threshold", min_value=0, max_value=255, value=1, step=1, key="mask_threshold")
+
+# Undo support: keep canvas objects list in session_state and rehydrate via initial_drawing
+if "mask_initial_drawing" not in st.session_state:
+    st.session_state["mask_initial_drawing"] = {"version": "4.4.0", "objects": []}
+
+colu1, colu2, colu3 = st.columns([1, 1, 2])
+with colu1:
+    if st.button("↩️ Undo last", key="undo_mask_btn"):
+        init = st.session_state.get("mask_initial_drawing") or {"version": "4.4.0", "objects": []}
+        objs = init.get("objects") or []
+        if len(objs) > 0:
+            objs.pop()
+            init["objects"] = objs
+            st.session_state["mask_initial_drawing"] = init
+        st.session_state.pop("inp_generated_mask_bytes", None)
+        st.experimental_rerun()
+
+with colu2:
+    if st.button("🧽 Clear mask", key="clear_mask_btn"):
+        st.session_state.pop("inp_generated_mask_bytes", None)
+        st.session_state["mask_initial_drawing"] = {"version": "4.4.0", "objects": []}
+        st.session_state.pop("mask_canvas", None)
+        st.experimental_rerun()
+
+# Canvas returns an RGBA image where painted pixels are in the stroke color
+canvas_result = st_canvas(
+    fill_color="rgba(255, 255, 255, 1.0)",
+    stroke_width=stroke_width,
+    stroke_color="rgba(255, 255, 255, 1.0)",
+    background_image=_base_pil,
+    update_streamlit=True,
+    height=_h,
+    width=_w,
+    drawing_mode=drawing_mode,
+    initial_drawing=st.session_state.get("mask_initial_drawing"),
+    key="mask_canvas",
+)
+
+if canvas_result.json_data is not None:
+    try:
+        st.session_state["mask_initial_drawing"] = canvas_result.json_data
+    except Exception:
+        pass
+
+if canvas_result.image_data is not None:
+    rgba = canvas_result.image_data.astype(np.uint8)
+    alpha = rgba[:, :, 3]
+
+    painted = (alpha > mask_threshold).astype(np.uint8) * 255
+    mask_pil = Image.fromarray(painted, mode="L")
+
+    if feather and feather > 0:
+        mask_pil = mask_pil.filter(ImageFilter.GaussianBlur(radius=float(feather)))
+
+    st.image(mask_pil, caption="Generated mask (white=edit, black=keep)", use_container_width=True)
+
+    import io
+    buf = io.BytesIO()
+    mask_pil.save(buf, format="PNG")
+    st.session_state["inp_generated_mask_bytes"] = buf.getvalue()
+    st.success("Generated mask is ready and will be used automatically (no need to upload).")
+
+    st.download_button(
+        "⬇️ Download mask.png",
+        data=buf.getvalue(),
+        file_name="mask.png",
+        mime="image/png",
+        key="download_mask_btn",
+    )
+
+    def _b64_any(upl_or_bytes):
+    if upl_or_bytes is None:
+        return None
+    if isinstance(upl_or_bytes, (bytes, bytearray)):
+        return base64.b64encode(upl_or_bytes).decode("utf-8")
+    # Streamlit UploadedFile
+    try:
+        return base64.b64encode(upl_or_bytes.getvalue()).decode("utf-8")
+    except Exception:
+        return None
+
+    if base_img:
+        st.image(base_img, caption="Base image", use_container_width=True)
+    if mask_img:
+        st.image(mask_img, caption="Mask image", use_container_width=True)
+
+elif st.session_state.get("inp_generated_mask_bytes"):
+    st.image(st.session_state["inp_generated_mask_bytes"], caption="Mask image (generated in-app)", use_container_width=True)
+    if id_img:
+        st.image(id_img, caption="Identity image", use_container_width=True)
+
+    if st.button("Build Gemini Inpainting Request Template", key="inp_build"):
+        payload = {
+            "provider": "google_gemini",
+            "model_suggestion": "gemini-3-pro-image-preview (Nano Banana Pro)",
+            "notes": "Send this JSON to your Gemini image editing endpoint. Base + mask enable near-identical edits. Keep denoise/strength low for maximum similarity.",
+            "inputs": {
+                "base_image_b64": _b64_any(base_img),
+                "mask_image_b64": _b64_any(mask_img) or _b64_any(st.session_state.get("inp_generated_mask_bytes")),
+                "identity_image_b64": _b64_any(id_img),
+                "prompt": edit_prompt.strip(),
+            },
+            "recommended_settings": {
+                "preserve_background": True,
+                "edit_strength_hint": "low",
+                "guidance": "high",
+                "aspect_ratio": "match_base_image",
+            },
+        }
+
+        st.subheader("Gemini request template (JSON)")
+        st.code(json.dumps(payload, indent=2, ensure_ascii=False), language="json")
+        copy_button("📋 Copy Gemini JSON", json.dumps(payload, ensure_ascii=False))
 
 
 # ---------------- Prompter ----------------
-with tabs[2]:
+with tabs[5]:
     st.subheader("Prompter (editable fields)")
 
     defaults = {
@@ -190,7 +372,7 @@ with tabs[2]:
         st.text_area("Generated Prompt", value=prompt, height=380)
 
 # ---------------- Poser ----------------
-with tabs[3]:
+with tabs[6]:
     st.subheader("Poser (5 new pose prompts)")
     img2 = st.file_uploader("Upload AI model image", type=["png", "jpg", "jpeg", "webp"], key="poser_upload")
     pose_style = st.selectbox(
@@ -252,7 +434,7 @@ with tabs[3]:
             st.text_area("Selected Prompt", value=full, height=420)
 
 # ---------------- Captions ----------------
-with tabs[4]:
+with tabs[3]:
     st.subheader("Captions (Instagram)")
 
     cap_img = st.file_uploader(
@@ -297,7 +479,7 @@ with tabs[4]:
         copy_button("📋 Copy Hashtags", hashtags_text)
 
 # ---------------- Settings ----------------
-with tabs[5]:
+with tabs[4]:
     st.subheader("Settings (Master DNA / Master Prompt)")
     st.session_state.master_prompt = st.text_area(
         "Master DNA / Master Prompt (used everywhere)",
