@@ -177,152 +177,149 @@ with tabs[2]:
         key="inp_prompt",
     )
 
+    st.markdown("### Create mask helper (optional)")
+    st.caption("Draw white over the areas you want to edit (face/body). Everything else will be kept as-is. "
+               "You can download the generated mask and upload it in the Mask uploader above.")
 
-st.markdown("### Create mask helper (optional)")
-st.caption("Draw white over the areas you want to edit (face/body). Everything else will be kept as-is. "
-           "You can download the generated mask and upload it in the Mask uploader above.")
-
-if base_img is None:
-    st.info("Upload a base image above to enable the mask editor.")
-else:
-    if st_canvas is None:
-        st.warning("Mask editor requires `streamlit-drawable-canvas`. Add it to requirements.txt: `streamlit-drawable-canvas`")
+    if base_img is None:
+        st.info("Upload a base image above to enable the mask editor.")
     else:
-        # Load base image for background
-        _base_pil = Image.open(base_img).convert("RGB")
-        _w, _h = _base_pil.size
+        if st_canvas is None:
+            st.warning("Mask editor requires `streamlit-drawable-canvas`. Add it to requirements.txt: `streamlit-drawable-canvas`")
+        else:
+            # Load base image for background
+            _base_pil = Image.open(base_img).convert("RGB")
+            _w, _h = _base_pil.size
 
-        # --- INDENTED BLOCK STARTS HERE ---
-        # Drawing mode controls
-        mode = st.radio(
-            "Mask drawing mode",
-            options=["Brush", "Rectangle", "Circle"],
-            index=0,
-            horizontal=True,
-            key="mask_mode",
-        )
-        drawing_mode = {"Brush": "freedraw", "Rectangle": "rect", "Circle": "circle"}[mode]
-
-        brush_size = st.slider("Brush size / Stroke width", min_value=5, max_value=120, value=35, step=1, key="mask_brush")
-        stroke_width = brush_size
-
-        feather = st.slider("Feather / blur edges (px)", min_value=0, max_value=80, value=12, step=1, key="mask_feather")
-        mask_threshold = st.slider("Mask threshold", min_value=0, max_value=255, value=1, step=1, key="mask_threshold")
-
-        # Undo support
-        if "mask_initial_drawing" not in st.session_state:
-            st.session_state["mask_initial_drawing"] = {"version": "4.4.0", "objects": []}
-
-        colu1, colu2, colu3 = st.columns([1, 1, 2])
-        with colu1:
-            if st.button("↩️ Undo last", key="undo_mask_btn"):
-                init = st.session_state.get("mask_initial_drawing") or {"version": "4.4.0", "objects": []}
-                objs = init.get("objects") or []
-                if len(objs) > 0:
-                    objs.pop()
-                    init["objects"] = objs
-                    st.session_state["mask_initial_drawing"] = init
-                st.session_state.pop("inp_generated_mask_bytes", None)
-                st.rerun()
-
-        with colu2:
-            if st.button("🧽 Clear mask", key="clear_mask_btn"):
-                st.session_state.pop("inp_generated_mask_bytes", None)
-                st.session_state["mask_initial_drawing"] = {"version": "4.4.0", "objects": []}
-                st.session_state.pop("mask_canvas", None)
-                st.rerun()
-
-        # Canvas call
-        canvas_result = st_canvas(
-            fill_color="rgba(255, 255, 255, 1.0)",
-            stroke_width=stroke_width,
-            stroke_color="rgba(255, 255, 255, 1.0)",
-            background_image=_base_pil,
-            update_streamlit=True,
-            height=_h,
-            width=_w,
-            drawing_mode=drawing_mode,
-            initial_drawing=st.session_state.get("mask_initial_drawing"),
-            key="mask_canvas",
-        )
-
-        if canvas_result.json_data is not None:
-            try:
-                st.session_state["mask_initial_drawing"] = canvas_result.json_data
-            except Exception:
-                pass
-
-        if canvas_result.image_data is not None:
-            rgba = canvas_result.image_data.astype(np.uint8)
-            alpha = rgba[:, :, 3]
-
-            painted = (alpha > mask_threshold).astype(np.uint8) * 255
-            mask_pil = Image.fromarray(painted, mode="L")
-
-            if feather and feather > 0:
-                mask_pil = mask_pil.filter(ImageFilter.GaussianBlur(radius=float(feather)))
-
-            st.image(mask_pil, caption="Generated mask (white=edit, black=keep)", use_container_width=True)
-
-            import io
-            buf = io.BytesIO()
-            mask_pil.save(buf, format="PNG")
-            st.session_state["inp_generated_mask_bytes"] = buf.getvalue()
-            st.success("Generated mask is ready and will be used automatically (no need to upload).")
-
-            st.download_button(
-                "⬇️ Download mask.png",
-                data=buf.getvalue(),
-                file_name="mask.png",
-                mime="image/png",
-                key="download_mask_btn",
+            # Drawing mode controls
+            mode = st.radio(
+                "Mask drawing mode",
+                options=["Brush", "Rectangle", "Circle"],
+                index=0,
+                horizontal=True,
+                key="mask_mode",
             )
-        # --- INDENTED BLOCK ENDS HERE ---
-        
-    def _b64_any(upl_or_bytes):
-        if upl_or_bytes is None:
-            return None
-        if isinstance(upl_or_bytes, (bytes, bytearray)):
-            return base64.b64encode(upl_or_bytes).decode("utf-8")
-        # Streamlit UploadedFile
-        try:
-            return base64.b64encode(upl_or_bytes.getvalue()).decode("utf-8")
-        except Exception:
-            return None
+            drawing_mode = {"Brush": "freedraw", "Rectangle": "rect", "Circle": "circle"}[mode]
 
-    if base_img:
-        st.image(base_img, caption="Base image", use_container_width=True)
+            brush_size = st.slider("Brush size / Stroke width", min_value=5, max_value=120, value=35, step=1, key="mask_brush")
+            stroke_width = brush_size
 
-    if mask_img:
-        st.image(mask_img, caption="Mask image", use_container_width=True)
-    elif st.session_state.get("inp_generated_mask_bytes"):
-        st.image(st.session_state["inp_generated_mask_bytes"], caption="Mask image (generated in-app)", use_container_width=True)
+            feather = st.slider("Feather / blur edges (px)", min_value=0, max_value=80, value=12, step=1, key="mask_feather")
+            mask_threshold = st.slider("Mask threshold", min_value=0, max_value=255, value=1, step=1, key="mask_threshold")
 
-    if id_img:
-        st.image(id_img, caption="Identity image", use_container_width=True)
+            # Undo support
+            if "mask_initial_drawing" not in st.session_state:
+                st.session_state["mask_initial_drawing"] = {"version": "4.4.0", "objects": []}
 
-    if st.button("Build Gemini Inpainting Request Template", key="inp_build"):
-        payload = {
-            "provider": "google_gemini",
-            "model_suggestion": "gemini-3-pro-image-preview (Nano Banana Pro)",
-            "notes": "Send this JSON to your Gemini image editing endpoint. Base + mask enable near-identical edits. Keep denoise/strength low for maximum similarity.",
-            "inputs": {
-                "base_image_b64": _b64_any(base_img),
-                "mask_image_b64": _b64_any(mask_img) or _b64_any(st.session_state.get("inp_generated_mask_bytes")),
-                "identity_image_b64": _b64_any(id_img),
-                "prompt": edit_prompt.strip(),
-            },
-            "recommended_settings": {
-                "preserve_background": True,
-                "edit_strength_hint": "low",
-                "guidance": "high",
-                "aspect_ratio": "match_base_image",
-            },
-        }
+            colu1, colu2, colu3 = st.columns([1, 1, 2])
+            with colu1:
+                if st.button("↩️ Undo last", key="undo_mask_btn"):
+                    init = st.session_state.get("mask_initial_drawing") or {"version": "4.4.0", "objects": []}
+                    objs = init.get("objects") or []
+                    if len(objs) > 0:
+                        objs.pop()
+                        init["objects"] = objs
+                        st.session_state["mask_initial_drawing"] = init
+                    st.session_state.pop("inp_generated_mask_bytes", None)
+                    st.rerun()
 
-        st.subheader("Gemini request template (JSON)")
-        st.code(json.dumps(payload, indent=2, ensure_ascii=False), language="json")
-        copy_button("📋 Copy Gemini JSON", json.dumps(payload, ensure_ascii=False))
+            with colu2:
+                if st.button("🧽 Clear mask", key="clear_mask_btn"):
+                    st.session_state.pop("inp_generated_mask_bytes", None)
+                    st.session_state["mask_initial_drawing"] = {"version": "4.4.0", "objects": []}
+                    st.session_state.pop("mask_canvas", None)
+                    st.rerun()
+
+            # Canvas returns an RGBA image where painted pixels are in the stroke color
+            canvas_result = st_canvas(
+                fill_color="rgba(255, 255, 255, 1.0)",
+                stroke_width=stroke_width,
+                stroke_color="rgba(255, 255, 255, 1.0)",
+                background_image=_base_pil,
+                update_streamlit=True,
+                height=_h,
+                width=_w,
+                drawing_mode=drawing_mode,
+                initial_drawing=st.session_state.get("mask_initial_drawing"),
+                key="mask_canvas",
+            )
+
+            if canvas_result.json_data is not None:
+                try:
+                    st.session_state["mask_initial_drawing"] = canvas_result.json_data
+                except Exception:
+                    pass
+
+            if canvas_result.image_data is not None:
+                rgba = canvas_result.image_data.astype(np.uint8)
+                alpha = rgba[:, :, 3]
+
+                painted = (alpha > mask_threshold).astype(np.uint8) * 255
+                mask_pil = Image.fromarray(painted, mode="L")
+
+                if feather and feather > 0:
+                    mask_pil = mask_pil.filter(ImageFilter.GaussianBlur(radius=float(feather)))
+
+                st.image(mask_pil, caption="Generated mask (white=edit, black=keep)", use_container_width=True)
+
+                import io
+                buf = io.BytesIO()
+                mask_pil.save(buf, format="PNG")
+                st.session_state["inp_generated_mask_bytes"] = buf.getvalue()
+                st.success("Generated mask is ready and will be used automatically (no need to upload).")
+
+                st.download_button(
+                    "⬇️ Download mask.png",
+                    data=buf.getvalue(),
+                    file_name="mask.png",
+                    mime="image/png",
+                    key="download_mask_btn",
+                )
+
+        def _b64_any(upl_or_bytes):
+            if upl_or_bytes is None:
+                return None
+            if isinstance(upl_or_bytes, (bytes, bytearray)):
+                return base64.b64encode(upl_or_bytes).decode("utf-8")
+            # Streamlit UploadedFile
+            try:
+                return base64.b64encode(upl_or_bytes.getvalue()).decode("utf-8")
+            except Exception:
+                return None
+
+        if base_img:
+            st.image(base_img, caption="Base image", use_container_width=True)
+
+        if mask_img:
+            st.image(mask_img, caption="Mask image", use_container_width=True)
+        elif st.session_state.get("inp_generated_mask_bytes"):
+            st.image(st.session_state["inp_generated_mask_bytes"], caption="Mask image (generated in-app)", use_container_width=True)
+
+        if id_img:
+            st.image(id_img, caption="Identity image", use_container_width=True)
+
+        if st.button("Build Gemini Inpainting Request Template", key="inp_build"):
+            payload = {
+                "provider": "google_gemini",
+                "model_suggestion": "gemini-3-pro-image-preview (Nano Banana Pro)",
+                "notes": "Send this JSON to your Gemini image editing endpoint. Base + mask enable near-identical edits. Keep denoise/strength low for maximum similarity.",
+                "inputs": {
+                    "base_image_b64": _b64_any(base_img),
+                    "mask_image_b64": _b64_any(mask_img) or _b64_any(st.session_state.get("inp_generated_mask_bytes")),
+                    "identity_image_b64": _b64_any(id_img),
+                    "prompt": edit_prompt.strip(),
+                },
+                "recommended_settings": {
+                    "preserve_background": True,
+                    "edit_strength_hint": "low",
+                    "guidance": "high",
+                    "aspect_ratio": "match_base_image",
+                },
+            }
+
+            st.subheader("Gemini request template (JSON)")
+            st.code(json.dumps(payload, indent=2, ensure_ascii=False), language="json")
+            copy_button("📋 Copy Gemini JSON", json.dumps(payload, ensure_ascii=False))
 
 
 # ---------------- Prompter ----------------
