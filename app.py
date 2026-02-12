@@ -85,7 +85,7 @@ svc = OpenAIService(api_key=API_KEY, model=st.session_state.model)
 st.sidebar.header("App")
 st.session_state.model = st.sidebar.text_input("Model", value=st.session_state.model)
 
-tabs = st.tabs(["Cloner", "Prompter", "Poser", "Captions", "Settings"])
+tabs = st.tabs(["Cloner", "PerfectCloner", "Prompter", "Poser", "Captions", "Settings"])
 
 # ---------------- Cloner ----------------
 with tabs[0]:
@@ -102,8 +102,47 @@ with tabs[0]:
             st.code(json.dumps(data, indent=2, ensure_ascii=False), language="json")
             st.text_area("Full Prompt", value=data.get("full_prompt", ""), height=280)
 
-# ---------------- Prompter ----------------
+
+# ---------------- PerfectCloner ----------------
 with tabs[1]:
+    st.subheader("PerfectCloner (STRICT JSON Schema)")
+    st.caption("Uploads a reference image and returns a schema-validated prompt package (camera/lens/lighting/composition) with a subject placeholder for later identity swap.")
+
+    pimg = st.file_uploader("Upload a reference image", type=["png", "jpg", "jpeg", "webp"], key="perfectcloner_upload")
+
+    if pimg:
+        st.image(pimg, caption="Reference image", use_container_width=True)
+
+        if st.button("Analyze → Generate Perfect Prompt Package", key="perfectcloner_btn"):
+            with st.spinner("Analyzing image with strict JSON schema..."):
+                pkg = svc.perfectcloner_analyze_filelike(pimg, st.session_state.master_prompt)
+
+            st.success("Done!")
+
+            st.subheader("Prompt Package (JSON)")
+            st.code(json.dumps(pkg, indent=2, ensure_ascii=False), language="json")
+
+            recreation_prompt = pkg.get("recreation_prompt", "") or ""
+            negative_prompt = pkg.get("negative_prompt", "") or ""
+            placeholder = pkg.get("subject_placeholder", "")
+
+            st.subheader("Recreation Prompt")
+            st.text_area("recreation_prompt", value=recreation_prompt, height=320, key="pc_recreation_prompt")
+            copy_button("📋 Copy Recreation Prompt", recreation_prompt)
+
+            st.subheader("Negative Prompt")
+            st.text_area("negative_prompt", value=negative_prompt, height=140, key="pc_negative_prompt")
+            copy_button("📋 Copy Negative Prompt", negative_prompt)
+
+            st.subheader("Subject placeholder token")
+            st.code(placeholder or "[[SUBJECT:USER_FACE_AND_BODY]]", language="text")
+
+            st.subheader("Insertion instructions")
+            st.info(pkg.get("insertion_instructions", "") or "")
+
+
+# ---------------- Prompter ----------------
+with tabs[2]:
     st.subheader("Prompter (editable fields)")
 
     defaults = {
@@ -151,7 +190,7 @@ with tabs[1]:
         st.text_area("Generated Prompt", value=prompt, height=380)
 
 # ---------------- Poser ----------------
-with tabs[2]:
+with tabs[3]:
     st.subheader("Poser (5 new pose prompts)")
     img2 = st.file_uploader("Upload AI model image", type=["png", "jpg", "jpeg", "webp"], key="poser_upload")
     pose_style = st.selectbox(
@@ -213,7 +252,7 @@ with tabs[2]:
             st.text_area("Selected Prompt", value=full, height=420)
 
 # ---------------- Captions ----------------
-with tabs[3]:
+with tabs[4]:
     st.subheader("Captions (Instagram)")
 
     cap_img = st.file_uploader(
@@ -258,7 +297,7 @@ with tabs[3]:
         copy_button("📋 Copy Hashtags", hashtags_text)
 
 # ---------------- Settings ----------------
-with tabs[4]:
+with tabs[5]:
     st.subheader("Settings (Master DNA / Master Prompt)")
     st.session_state.master_prompt = st.text_area(
         "Master DNA / Master Prompt (used everywhere)",
