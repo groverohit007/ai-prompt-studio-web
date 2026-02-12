@@ -279,23 +279,24 @@ if canvas_result.image_data is not None:
     )
 
     def _b64_any(upl_or_bytes):
-    if upl_or_bytes is None:
-        return None
-    if isinstance(upl_or_bytes, (bytes, bytearray)):
-        return base64.b64encode(upl_or_bytes).decode("utf-8")
-    # Streamlit UploadedFile
-    try:
-        return base64.b64encode(upl_or_bytes.getvalue()).decode("utf-8")
-    except Exception:
-        return None
+        if upl_or_bytes is None:
+            return None
+        if isinstance(upl_or_bytes, (bytes, bytearray)):
+            return base64.b64encode(upl_or_bytes).decode("utf-8")
+        # Streamlit UploadedFile
+        try:
+            return base64.b64encode(upl_or_bytes.getvalue()).decode("utf-8")
+        except Exception:
+            return None
 
     if base_img:
         st.image(base_img, caption="Base image", use_container_width=True)
+
     if mask_img:
         st.image(mask_img, caption="Mask image", use_container_width=True)
+    elif st.session_state.get("inp_generated_mask_bytes"):
+        st.image(st.session_state["inp_generated_mask_bytes"], caption="Mask image (generated in-app)", use_container_width=True)
 
-elif st.session_state.get("inp_generated_mask_bytes"):
-    st.image(st.session_state["inp_generated_mask_bytes"], caption="Mask image (generated in-app)", use_container_width=True)
     if id_img:
         st.image(id_img, caption="Identity image", use_container_width=True)
 
