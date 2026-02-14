@@ -79,22 +79,39 @@ class OpenAIService:
         ]
         return self._call_chat_json(messages, max_tokens=1500)
 
-    # -------------------- MULTI-ANGLE GRID PLANNER --------------------
+    # -------------------- MULTI-ANGLE GRID PLANNER (FIXED) --------------------
     def multi_angle_planner_filelike(self, uploaded_file, master_dna: str) -> Dict[str, Any]:
         data_url = self._filelike_to_data_url(uploaded_file)
         dna_snippet = (master_dna or "")[:800]
+        
         instructions = (
-            "Analyze character. Design a 'Multi-Angle Character Sheet' plan.\n"
-            "1. Create 'grid_prompt' for a 4x5 grid image (20 slots) of this character in 20 DIFFERENT angles.\n"
-            "2. List those 20 angles.\n"
-            "Return JSON: 'grid_prompt' (string), 'angles' (list of {id, name, description})."
+            "You are an expert Virtual Photography Director.\n"
+            "Analyze the character in the image and design a 'Multi-Angle Character Sheet' plan.\n"
+            "1. Create a 'grid_prompt' that would generate a single 4x5 grid image (20 slots).\n"
+            "   CRITICAL: The 'grid_prompt' string MUST explicitly list specific angles for the slots to ensure variety.\n"
+            "   (Example: '...Grid containing: 1. Front view, 2. Side Profile, 3. Back view, 4. Top-Down view, 5. Low Angle...').\n"
+            "   Do NOT just say '20 different angles'. List the varied angles in the prompt text itself.\n"
+            "2. Create a detailed structured list of those 20 angles for the UI.\n"
+            "Return JSON with keys: 'grid_prompt' (string), 'angles' (list of objects with id (1-20), name, description)."
         )
-        user_text = f"Character DNA:\n{dna_snippet}\n\nPlan 20 angles."
+
+        user_text = (
+            f"Character DNA:\n{dna_snippet}\n\n"
+            "Task: Plan 20 distinct camera angles (e.g., Low Angle, Top-Down, Dutch Tilt, Profile, Back View, Close-up, etc.) for this character.\n"
+            "Output JSON."
+        )
+
         messages = [
             {"role": "system", "content": instructions},
-            {"role": "user", "content": [{"type": "text", "text": user_text}, {"type": "image_url", "image_url": {"url": data_url}}]},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": user_text},
+                    {"type": "image_url", "image_url": {"url": data_url}},
+                ],
+            },
         ]
-        return self._call_chat_json(messages, max_tokens=2000)
+        return self._call_chat_json(messages, max_tokens=2500)
 
     def build_physics_prompt(self, master_dna: str, angle_data: Dict[str, Any]) -> str:
         angle_name = angle_data.get("name", "Unknown Angle")
