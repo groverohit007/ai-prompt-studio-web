@@ -109,7 +109,7 @@ with tabs[1]:
         copy_button("📋 Copy Prompt", rec_prompt)
         st.json(data)
 
-# ---------------- Tab 2: Multi-Angle Grid (UPDATED) ----------------
+# ---------------- Tab 2: Multi-Angle Grid ----------------
 with tabs[2]:
     st.subheader("Multi-Angle Pose Grid")
     ref_img = st.file_uploader("1. Upload Reference Character", type=["png", "jpg", "webp"], key="mag_ref")
@@ -125,19 +125,15 @@ with tabs[2]:
         st.text_area("Grid Prompt", value=plan_data.get("grid_prompt", ""), height=150)
         
         st.markdown("### 2. Select Angle")
-        # --- NEW TOGGLE FOR DROPDOWN ---
         selection_mode = st.radio("Selection Method", ["Visual Selection (Click Image)", "Manual Selection (Dropdown List)"], horizontal=True)
         
         selected_angle = None
 
         if selection_mode == "Manual Selection (Dropdown List)":
-            # Create list for dropdown
             angles_list = plan_data.get("angles", [])
             options = [f"{a.get('id', 0)}. {a.get('name', 'Unknown')}" for a in angles_list]
             choice = st.selectbox("Choose Angle from List", options)
-            
             if choice:
-                # Parse ID from string "1. Front View"
                 try:
                     idx = int(choice.split(".")[0]) - 1
                     if 0 <= idx < len(angles_list):
@@ -146,11 +142,9 @@ with tabs[2]:
                     pass
 
         else:
-            # Visual Selection
             if HAS_COORDS:
                 grid_upload = st.file_uploader("Upload Generated Grid (4x5)", type=["png", "jpg"], key="mag_grid_upl")
                 if grid_upload:
-                    # FIX: Open with PIL
                     pil_img = Image.open(grid_upload)
                     value = streamlit_image_coordinates(pil_img, key="grid_coords")
                     if value:
@@ -158,14 +152,12 @@ with tabs[2]:
                         col_idx = int(value["x"] // (w / 4))
                         row_idx = int(value["y"] // (h / 5))
                         angle_num = (row_idx * 4) + col_idx + 1
-                        
                         angles = plan_data.get("angles", [])
                         if 0 < angle_num <= len(angles):
                             selected_angle = angles[angle_num - 1]
             else:
                 st.warning("Please install `streamlit-image-coordinates` to use visual selection.")
 
-        # Display Result
         if selected_angle:
             st.success(f"Selected: **{selected_angle.get('name')}**")
             final_prompt = svc.build_physics_prompt(st.session_state.master_prompt, selected_angle)
