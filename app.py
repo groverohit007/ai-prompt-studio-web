@@ -109,20 +109,38 @@ with tabs[1]:
         copy_button("📋 Copy Prompt", rec_prompt)
         st.json(data)
 
-# ---------------- Tab 2: Multi-Angle Grid ----------------
+# ---------------- Tab 2: Multi-Angle Grid (Debug Fix) ----------------
 with tabs[2]:
     st.subheader("Multi-Angle Pose Grid")
+    st.caption("Plan 20 unique angles for your character.")
+    
     ref_img = st.file_uploader("1. Upload Reference Character", type=["png", "jpg", "webp"], key="mag_ref")
     
+    # Add a Reset button in case you get stuck
+    if st.button("🔄 Reset Tab", key="mag_reset"):
+        st.session_state.multi_angle_data = None
+        st.rerun()
+
     if ref_img and st.button("Analyze & Plan 20 Angles", key="mag_plan_btn"):
-        with st.spinner("Planning..."):
-            st.session_state.multi_angle_data = svc.multi_angle_planner_filelike(ref_img, st.session_state.master_prompt)
-            st.success("Plan generated!")
-    
+        with st.spinner("Planning 20-angle sheet (this may take 20-30s)..."):
+            # Call the service
+            plan = svc.multi_angle_planner_filelike(ref_img, st.session_state.master_prompt)
+            
+            # --- DEBUG: Check if data came back empty ---
+            if not plan:
+                st.error("❌ API Error: The AI returned no data.")
+                st.warning("Possible causes:\n1. Your API Key is invalid.\n2. You are out of OpenAI credits.\n3. The model 'gpt-4o' is not available on your account (try 'gpt-4-turbo').")
+            else:
+                st.session_state.multi_angle_data = plan
+                st.success("Plan generated successfully!")
+                st.rerun() # Force a refresh to show data
+
+    # Display Logic
     plan_data = st.session_state.multi_angle_data
     if plan_data:
         st.divider()
-        st.text_area("Grid Prompt", value=plan_data.get("grid_prompt", ""), height=150)
+        st.markdown("### 1. The Grid Prompt")
+        st.text_area("Grid Prompt (Copy this to Midjourney/DALL-E)", value=plan_data.get("grid_prompt", ""), height=150)
         
         st.markdown("### 2. Select Angle")
         selection_mode = st.radio("Selection Method", ["Visual Selection (Click Image)", "Manual Selection (Dropdown List)"], horizontal=True)
@@ -152,11 +170,12 @@ with tabs[2]:
                         col_idx = int(value["x"] // (w / 4))
                         row_idx = int(value["y"] // (h / 5))
                         angle_num = (row_idx * 4) + col_idx + 1
+                        
                         angles = plan_data.get("angles", [])
                         if 0 < angle_num <= len(angles):
                             selected_angle = angles[angle_num - 1]
             else:
-                st.warning("Please install `streamlit-image-coordinates` to use visual selection.")
+                st.warning("⚠️ To use Visual Selection, you must add `streamlit-image-coordinates` to your requirements.txt file.")
 
         if selected_angle:
             st.success(f"Selected: **{selected_angle.get('name')}**")
