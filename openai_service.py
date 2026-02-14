@@ -15,50 +15,26 @@ class OpenAIService:
         self.client = OpenAI(api_key=api_key)
         self.model = model
 
-    # -------------------- DR. MOTION (NEW) --------------------
+    # -------------------- DR. MOTION --------------------
     def drmotion_generate(self, uploaded_file, model_choice: str, motion_type: str, master_dna: str) -> Dict[str, Any]:
         data_url = self._filelike_to_data_url(uploaded_file)
-        
-        # Model-Specific Best Practices (Hidden Knowledge)
         model_guides = {
-            "Kling 1.5": "Focus on 'high quality', '8k', and specific camera moves like 'camera orbit'. Mention texture realism.",
-            "Veo 2 / Sora": "Focus on physics consistency, fluid dynamics, lighting interaction, and temporal coherence.",
-            "Luma Dream Machine": "Focus on 'cinematic', 'keyframe', and start/end state descriptions.",
-            "Runway Gen-3 Alpha": "Focus on 'structure preservation', 'smooth motion', and specific speed/intensity adjectives."
+            "Kling 1.5": "Focus on 'high quality', '8k', camera orbit, texture realism.",
+            "Veo 2 / Sora": "Focus on physics consistency, fluid dynamics, lighting interaction.",
+            "Luma Dream Machine": "Focus on 'cinematic', 'keyframe', start/end state.",
+            "Runway Gen-3 Alpha": "Focus on 'structure preservation', 'smooth motion', speed/intensity."
         }
-        
         guide = model_guides.get(model_choice, "Focus on realistic motion and physics.")
-
         instructions = (
-            f"You are Dr. Motion, an expert AI Video Prompt Engineer specializing in {model_choice}.\n"
-            f"STYLE GUIDE FOR {model_choice}: {guide}\n\n"
-            "TASK:\n"
-            "1. Analyze the uploaded image to understand the subject and setting.\n"
-            f"2. Write a specialized video generation prompt to animate this subject performing: '{motion_type}'.\n"
-            "3. CRITICAL: Include specific 'Physics & Lighting Logics':\n"
-            "   - Cloth Simulation: How fabric moves/wrinkles with the motion.\n"
-            "   - Hair Physics: How hair reacts to gravity/wind/movement.\n"
-            "   - Lighting: How shadows shift and highlights travel across surfaces during movement.\n"
-            "   - Weight: Describe the weight of footsteps or gestures.\n\n"
-            "Return JSON keys: 'analysis', 'physics_logic', 'final_video_prompt'."
+            f"You are Dr. Motion, expert in {model_choice}.\nStyle Guide: {guide}\n"
+            f"Task: Write a video prompt for motion: '{motion_type}'.\n"
+            "Include Physics & Lighting: Cloth simulation, Hair physics, Lighting shifts, Weight.\n"
+            "Return JSON: {analysis, physics_logic, final_video_prompt}."
         )
-
-        user_text = (
-            f"Master Identity: {master_dna}\n"
-            f"Target Model: {model_choice}\n"
-            f"Target Motion: {motion_type}\n"
-            "Generate the video prompt."
-        )
-
+        user_text = f"Master Identity: {master_dna}\nModel: {model_choice}\nMotion: {motion_type}\nGenerate prompt."
         messages = [
             {"role": "system", "content": instructions},
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": user_text},
-                    {"type": "image_url", "image_url": {"url": data_url}},
-                ],
-            },
+            {"role": "user", "content": [{"type": "text", "text": user_text}, {"type": "image_url", "image_url": {"url": data_url}}]},
         ]
         return self._call_chat_json(messages, max_tokens=1500)
 
@@ -66,11 +42,10 @@ class OpenAIService:
     def wardrobe_fuse_filelike(self, uploaded_file, master_dna: str) -> Dict[str, Any]:
         data_url = self._filelike_to_data_url(uploaded_file)
         instructions = (
-            "You are an expert AI Fashion Stylist.\n"
-            "1. Analyze the uploaded image and extract the 'Outfit DNA' (fabric, cut, texture, color). IGNORE the person; focus on clothing.\n"
-            "2. Combine this Outfit DNA with the user's locked 'Master Face DNA'.\n"
-            "3. Generate a final image prompt featuring the Master DNA character wearing this outfit.\n"
-            "Return JSON keys: 'outfit_description', 'fused_prompt'."
+            "Analyze outfit image (fabric, cut, texture). IGNORE person.\n"
+            "Fuse with Master Face DNA.\n"
+            "Generate image prompt.\n"
+            "Return JSON: {outfit_description, fused_prompt}."
         )
         user_text = f"MASTER DNA:\n{master_dna}\n\nTask: Wear this outfit.\nOutput JSON."
         messages = [
@@ -79,25 +54,23 @@ class OpenAIService:
         ]
         return self._call_chat_json(messages, max_tokens=1500)
 
-    # -------------------- MULTI-ANGLE GRID PLANNER (FIXED) --------------------
+    # -------------------- MULTI-ANGLE GRID PLANNER (UPDATED) --------------------
     def multi_angle_planner_filelike(self, uploaded_file, master_dna: str) -> Dict[str, Any]:
         data_url = self._filelike_to_data_url(uploaded_file)
         dna_snippet = (master_dna or "")[:800]
         
         instructions = (
             "You are an expert Virtual Photography Director.\n"
-            "Analyze the character in the image and design a 'Multi-Angle Character Sheet' plan.\n"
-            "1. Create a 'grid_prompt' that would generate a single 4x5 grid image (20 slots).\n"
-            "   CRITICAL: The 'grid_prompt' string MUST explicitly list specific angles for the slots to ensure variety.\n"
-            "   (Example: '...Grid containing: 1. Front view, 2. Side Profile, 3. Back view, 4. Top-Down view, 5. Low Angle...').\n"
-            "   Do NOT just say '20 different angles'. List the varied angles in the prompt text itself.\n"
-            "2. Create a detailed structured list of those 20 angles for the UI.\n"
-            "Return JSON with keys: 'grid_prompt' (string), 'angles' (list of objects with id (1-20), name, description)."
+            "Task: Design a 'Multi-Angle Character Sheet' (4x5 grid, 20 slots).\n"
+            "1. Create a 'grid_prompt' for the image generator. CRITICAL: You MUST explicitly list the 20 angles in the prompt text (e.g., 'Slot 1: Front, Slot 2: Side...').\n"
+            "   ALSO: Instruct the generator to 'Burn visible numbers 1-20 into the corner of each grid slot' so the user can identify them.\n"
+            "2. Return a structured list of these 20 angles.\n"
+            "Return JSON keys: 'grid_prompt' (string), 'angles' (list of objects with id (1-20), name, description)."
         )
 
         user_text = (
             f"Character DNA:\n{dna_snippet}\n\n"
-            "Task: Plan 20 distinct camera angles (e.g., Low Angle, Top-Down, Dutch Tilt, Profile, Back View, Close-up, etc.) for this character.\n"
+            "Task: Plan 20 distinct camera angles (Low, High, Dutch, Profile, Back, etc.).\n"
             "Output JSON."
         )
 
