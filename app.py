@@ -127,10 +127,16 @@ with tabs[2]:
         if HAS_COORDS:
             grid_upload = st.file_uploader("Upload Generated Grid (4x5)", type=["png", "jpg"], key="mag_grid_upl")
             if grid_upload:
-                value = streamlit_image_coordinates(grid_upload, key="grid_coords")
+                # --- FIX START: Open image with PIL first ---
+                pil_img = Image.open(grid_upload)
+                value = streamlit_image_coordinates(pil_img, key="grid_coords")
+                # --- FIX END ---
+
                 if value:
-                    w, h = Image.open(grid_upload).size
+                    w, h = pil_img.size
+                    # Calculate 4 columns, 5 rows
                     angle_num = int(value["y"] // (h / 5)) * 4 + int(value["x"] // (w / 4)) + 1
+                    
                     angles = plan_data.get("angles", [])
                     if 0 < angle_num <= len(angles):
                         final_prompt = svc.build_physics_prompt(st.session_state.master_prompt, angles[angle_num - 1])
