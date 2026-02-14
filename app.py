@@ -50,15 +50,19 @@ if APP_PASSWORD:
         st.session_state.auth_ok = False
     if not st.session_state.auth_ok:
         st.title("AI Prompt Studio")
-        if st.button("Login") and st.text_input("Password", type="password") == APP_PASSWORD:
-            st.session_state.auth_ok = True
-            st.rerun()
+        pw = st.text_input("Password", type="password")
+        if st.button("Login"):
+            if pw == APP_PASSWORD:
+                st.session_state.auth_ok = True
+                st.rerun()
+            else:
+                st.error("Wrong password")
         st.stop()
 
 # --- Setup ---
 API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 if not API_KEY:
-    st.error("Missing OPENAI_API_KEY.")
+    st.error("Missing OPENAI_API_KEY. Add it to Streamlit Secrets or local .env file.")
     st.stop()
 
 if "master_prompt" not in st.session_state:
@@ -67,6 +71,8 @@ if "model" not in st.session_state:
     st.session_state.model = "gpt-4o"
 if "multi_angle_data" not in st.session_state:
     st.session_state.multi_angle_data = None
+if "poser_data" not in st.session_state:
+    st.session_state.poser_data = None
 
 st.title("AI Prompt Studio (Web)")
 svc = OpenAIService(api_key=API_KEY, model=st.session_state.model)
@@ -76,149 +82,170 @@ st.sidebar.header("Configuration")
 st.session_state.model = st.sidebar.text_input("OpenAI Model", value=st.session_state.model)
 
 # --- TABS ---
-# Tabs: 0:Cloner, 1:PerfectCloner, 2:Multi-Angle(NEW), 3:Prompter, 4:Poser, 5:Captions, 6:Settings
-tabs = st.tabs(["Cloner", "PerfectCloner", "Multi-Angle Grid", "Prompter", "Poser", "Captions", "Settings"])
+# All tabs are now fully implemented
+tabs = st.tabs(["Cloner", "PerfectCloner", "Multi-Angle Grid", "Digital Wardrobe", "Prompter", "Poser", "Captions", "Settings"])
 
-# ... (Previous Tabs 0 & 1 Omitted for brevity, paste them from previous version if needed, 
-# or I can include them. Assuming you have Cloner/PerfectCloner logic already.) ...
-# Since you wanted the FULL files, I will include Cloner briefly.
-
+# ---------------- Tab 0: Cloner ----------------
 with tabs[0]:
     st.subheader("Cloner")
-    img = st.file_uploader("Upload Person", type=["jpg", "png"], key="cloner_upl")
+    img = st.file_uploader("Upload Person", type=["jpg", "png", "webp"], key="cloner_upl")
     if img and st.button("Analyze", key="cloner_btn"):
         with st.spinner("Analyzing..."):
             data = svc.cloner_analyze_filelike(img, st.session_state.master_prompt)
         st.code(json.dumps(data, indent=2))
+        st.text_area("Full Prompt", value=data.get("full_prompt", ""), height=250)
 
+# ---------------- Tab 1: PerfectCloner ----------------
 with tabs[1]:
     st.subheader("PerfectCloner")
-    pimg = st.file_uploader("Upload Reference", type=["jpg", "png"], key="pc_upl")
+    pimg = st.file_uploader("Upload Reference", type=["jpg", "png", "webp"], key="pc_upl")
+    identity_lock = st.checkbox("Enable Identity Lock", value=True)
     if pimg and st.button("Analyze Schema", key="pc_btn"):
         with st.spinner("Processing..."):
-            # Mock call or real call if you have the full schema method
-            st.success("Analysis complete (Schema functionality required in service)")
+            data = svc.perfectcloner_analyze_filelike(pimg, st.session_state.master_prompt, identity_lock)
+        
+        st.success("Analysis Complete")
+        rec_prompt = data.get("recreation_prompt", "")
+        st.text_area("Recreation Prompt", value=rec_prompt, height=300)
+        copy_button("📋 Copy Prompt", rec_prompt)
+        st.json(data)
 
-# ---------------- NEW TAB: MULTI-ANGLE GRID ----------------
+# ---------------- Tab 2: Multi-Angle Grid ----------------
 with tabs[2]:
-    st.subheader("Multi-Angle Pose Grid (Physics & Light)")
-    st.info("1. Analyze image to plan 20 angles. \n2. Generate/Upload the Grid Image. \n3. Click the angle you want to get the Physics Prompt.")
+    st.subheader("Multi-Angle Pose Grid")
+    st.info("1. Upload Reference -> 2. Plan 20 Angles -> 3. Upload Grid -> 4. Click to Prompt")
     
-    # Step 1: Upload Reference
     ref_img = st.file_uploader("1. Upload Reference Character", type=["png", "jpg", "webp"], key="mag_ref")
     
     if ref_img:
         st.image(ref_img, width=200, caption="Reference")
-        
         if st.button("Analyze & Plan 20 Angles", key="mag_plan_btn"):
             with st.spinner("Planning 20-angle character sheet..."):
                 plan = svc.multi_angle_planner_filelike(ref_img, st.session_state.master_prompt)
                 st.session_state.multi_angle_data = plan
                 st.success("Plan generated!")
     
-    # Step 2: Show Plan & Grid Prompt
     plan_data = st.session_state.multi_angle_data
     if plan_data:
         st.divider()
-        st.markdown("### 2. The Grid Plan")
-        
         col1, col2 = st.columns([1, 1])
         with col1:
             grid_prompt = plan_data.get("grid_prompt", "")
-            st.text_area("Grid Prompt (Use in DALL-E 3 / Midjourney)", value=grid_prompt, height=150)
+            st.text_area("Grid Prompt (Use in DALL-E/Midjourney)", value=grid_prompt, height=150)
             copy_button("📋 Copy Grid Prompt", grid_prompt)
-            st.caption("Tip: Use this prompt to generate a 4x5 grid image labeled 1-20.")
-            
         with col2:
             st.markdown("**Angle List:**")
-            angles = plan_data.get("angles", [])
-            with st.expander("View all 20 angles text"):
-                st.json(angles)
+            with st.expander("View 20 Angles"):
+                st.json(plan_data.get("angles", []))
 
         st.divider()
-        st.markdown("### 3. Select Angle & Generate Physics Prompt")
+        st.markdown("### Select Angle")
         
-        # Interaction Mode: List vs Clickable Image
-        interact_mode = st.radio("Selection Method:", ["Click on Grid Image (Upload)", "Select from List"], horizontal=True)
-        
-        selected_angle_data = None
-        
-        if interact_mode == "Select from List":
-            # Simple Dropdown
-            angle_names = [f"{a.get('id')}. {a.get('name')}" for a in angles]
-            choice = st.selectbox("Choose Angle", angle_names)
-            # Find the data
-            if choice:
-                idx = int(choice.split(".")[0]) - 1
-                if 0 <= idx < len(angles):
-                    selected_angle_data = angles[idx]
-                    
+        if not HAS_COORDS:
+            st.warning("Install `streamlit-image-coordinates` to enable click-to-select.")
         else:
-            # CLICKABLE GRID MODE
-            if not HAS_COORDS:
-                st.error("Please install `streamlit-image-coordinates` to use this feature.")
-            else:
-                grid_upload = st.file_uploader("Upload the Generated Grid Image (4x5)", type=["png", "jpg"], key="mag_grid_upl")
-                if grid_upload:
-                    # Logic to calculate which box is clicked
-                    # Assumes 4 columns, 5 rows
-                    value = streamlit_image_coordinates(grid_upload, key="grid_coords")
+            grid_upload = st.file_uploader("Upload Generated Grid (4x5)", type=["png", "jpg"], key="mag_grid_upl")
+            if grid_upload:
+                value = streamlit_image_coordinates(grid_upload, key="grid_coords")
+                if value:
+                    pil_img = Image.open(grid_upload)
+                    w, h = pil_img.size
+                    col_idx = int(value["x"] // (w / 4))
+                    row_idx = int(value["y"] // (h / 5))
+                    angle_num = (row_idx * 4) + col_idx + 1
                     
-                    if value:
-                        # Calculate index
-                        # Get image dims
-                        pil_img = Image.open(grid_upload)
-                        w, h = pil_img.size
-                        x, y = value["x"], value["y"]
-                        
-                        col_w = w / 4
-                        row_h = h / 5
-                        
-                        col_idx = int(x // col_w)
-                        row_idx = int(y // row_h)
-                        
-                        # Index 1-20
-                        angle_num = (row_idx * 4) + col_idx + 1
-                        
-                        if 1 <= angle_num <= 20:
-                            st.success(f"Selected Angle #{angle_num}")
-                            # Find data (adjust for 0-index list)
-                            if (angle_num - 1) < len(angles):
-                                selected_angle_data = angles[angle_num - 1]
-                            else:
-                                st.warning("Angle data not found for this index.")
+                    angles = plan_data.get("angles", [])
+                    if 0 < angle_num <= len(angles):
+                        sel_angle = angles[angle_num - 1]
+                        st.success(f"Selected Angle #{angle_num}: {sel_angle.get('name')}")
+                        final_prompt = svc.build_physics_prompt(st.session_state.master_prompt, sel_angle)
+                        st.text_area("Physics Prompt", value=final_prompt, height=250)
+                        copy_button("📋 Copy Physics Prompt", final_prompt)
 
-        # Step 4: Final Output
-        if selected_angle_data:
-            st.markdown(f"#### Selected: **{selected_angle_data.get('name')}**")
-            st.info(selected_angle_data.get('description'))
-            
-            if st.button(f"Generate Physics Prompt for #{selected_angle_data.get('id')}", key="mag_gen_final"):
-                final_prompt = svc.build_physics_prompt(st.session_state.master_prompt, selected_angle_data)
-                
-                st.markdown("### 🚀 Final Physics-Based Prompt")
-                st.text_area("Full Prompt", value=final_prompt, height=300)
-                copy_button("📋 Copy Final Prompt", final_prompt)
-                
-                st.markdown("**Physics Features Included:**")
-                st.caption("✅ PBR Raytracing  ✅ Subsurface Scattering (SSS)  ✅ Volumetric Lighting  ✅ Fresnel Reflections")
-
-# ---------------- EXISTING TABS (Prompter, Poser, Captions, Settings) ----------------
+# ---------------- Tab 3: Digital Wardrobe (NEW) ----------------
 with tabs[3]:
-    st.subheader("Prompter")
-    # ... (Paste your existing Prompter code here) ...
-    st.write("(Prompter code from previous version)")
+    st.subheader("Digital Wardrobe")
+    st.info("Upload an image of an outfit (dress, suit, etc.). The AI will extract the 'Fashion DNA' and fuse it with your Master Identity.")
 
+    wardrobe_img = st.file_uploader("Upload Outfit Reference", type=["png", "jpg", "webp"], key="wardrobe_upl")
+
+    if wardrobe_img:
+        st.image(wardrobe_img, width=250, caption="Outfit Reference")
+        
+        if st.button("🧵 Analyze & Wear", key="wardrobe_btn"):
+            with st.spinner("Extracting textures and fabrics..."):
+                w_data = svc.wardrobe_fuse_filelike(wardrobe_img, st.session_state.master_prompt)
+            
+            st.success("Outfit Fused!")
+            
+            st.markdown("### Outfit Analysis")
+            st.write(w_data.get("outfit_description", "No description generated."))
+            
+            st.markdown("### Fused Prompt")
+            fused_prompt = w_data.get("fused_prompt", "")
+            st.text_area("Final Prompt", value=fused_prompt, height=300)
+            copy_button("📋 Copy Fused Prompt", fused_prompt)
+
+# ---------------- Tab 4: Prompter ----------------
 with tabs[4]:
-    st.subheader("Poser")
-    # ... (Paste your existing Poser code here) ...
-    st.write("(Poser code from previous version)")
+    st.subheader("Prompter")
+    
+    c1, c2 = st.columns(2)
+    with c1:
+        pose = st.selectbox("Pose", ["Confident", "Sitting", "Walking", "Close-up"], key="p_pose")
+        attire = st.selectbox("Attire", ["Saree", "Business Suit", "Casual Jeans", "Evening Gown"], key="p_attire")
+        lighting = st.selectbox("Lighting", ["Softbox", "Golden Hour", "Neon", "Natural"], key="p_light")
+    with c2:
+        cam = st.selectbox("Angle", ["Eye Level", "Low Angle", "Profile", "Top Down"], key="p_cam")
+        bg = st.selectbox("Background", ["Living Room", "Street", "Studio", "Nature"], key="p_bg")
+        jewel = st.selectbox("Jewellery", ["Minimal", "Heavy Gold", "Silver", "None"], key="p_jewel")
 
+    if st.button("Generate Prompt", key="prompter_btn"):
+        fields = {"pose": pose, "attire": attire, "lighting": lighting, "camera_angle": cam, "background": bg, "jewellery": jewel}
+        prompt = svc.prompter_build(st.session_state.master_prompt, fields)
+        st.text_area("Result", value=prompt, height=300)
+        copy_button("📋 Copy", prompt)
+
+# ---------------- Tab 5: Poser ----------------
 with tabs[5]:
-    st.subheader("Captions")
-    # ... (Paste your existing Captions code here) ...
-    st.write("(Captions code from previous version)")
+    st.subheader("Poser")
+    poser_img = st.file_uploader("Upload Reference Pose", type=["jpg", "png"], key="poser_upl")
+    style = st.selectbox("Style", ["Casual", "Elegant", "Edgy", "Professional"], key="poser_style")
+    
+    if poser_img and st.button("Generate Variations", key="poser_btn"):
+        with st.spinner("Dreaming up poses..."):
+            st.session_state.poser_data = svc.poser_variations_filelike(poser_img, st.session_state.master_prompt, style)
+    
+    if st.session_state.poser_data:
+        data = st.session_state.poser_data
+        prompts = data.get("prompts", [])
+        
+        # Display as Radio Selection
+        names = [p.get("pose_name", "Pose") for p in prompts]
+        selected_name = st.radio("Choose a Variation", names)
+        
+        # Find selected
+        for p in prompts:
+            if p.get("pose_name") == selected_name:
+                full_text = f"{st.session_state.master_prompt}\n\nPOSE: {p.get('pose_name')}\nDETAILS: {p.get('pose_description')}\nEXPRESSION: {p.get('facial_expression')}\n\nSCENE LOCK: {data.get('scene_lock')}"
+                st.text_area("Prompt", value=full_text, height=250)
+                copy_button("📋 Copy Pose", full_text)
 
+# ---------------- Tab 6: Captions ----------------
 with tabs[6]:
+    st.subheader("Captions")
+    cap_img = st.file_uploader("Upload for Caption", type=["jpg", "png"], key="cap_upl")
+    c_style = st.selectbox("Tone", ["Funny", "Serious", "Inspirational", "Sarcastic"], key="cap_style")
+    c_lang = st.radio("Language", ["English", "Hindi", "Hinglish"], horizontal=True, key="cap_lang")
+    
+    if cap_img and st.button("Write Caption", key="cap_btn"):
+        with st.spinner("Writing..."):
+            res = svc.captions_generate_filelike(cap_img, c_style, c_lang)
+        
+        st.text_area("Caption", value=res.get("caption"), height=150)
+        st.text_input("Hashtags", value=" ".join(res.get("hashtags", [])))
+
+# ---------------- Tab 7: Settings ----------------
+with tabs[7]:
     st.subheader("Settings")
-    st.session_state.master_prompt = st.text_area("Master DNA", value=st.session_state.master_prompt, height=200)
+    st.session_state.master_prompt = st.text_area("Master DNA", value=st.session_state.master_prompt, height=300)
