@@ -82,8 +82,7 @@ st.sidebar.header("Configuration")
 st.session_state.model = st.sidebar.text_input("OpenAI Model", value=st.session_state.model)
 
 # --- TABS ---
-# All tabs are now fully implemented
-tabs = st.tabs(["Cloner", "PerfectCloner", "Multi-Angle Grid", "Digital Wardrobe", "Prompter", "Poser", "Captions", "Settings"])
+tabs = st.tabs(["Cloner", "PerfectCloner", "Multi-Angle Grid", "Digital Wardrobe", "DrMotion (Video)", "Prompter", "Poser", "Captions", "Settings"])
 
 # ---------------- Tab 0: Cloner ----------------
 with tabs[0]:
@@ -113,83 +112,75 @@ with tabs[1]:
 # ---------------- Tab 2: Multi-Angle Grid ----------------
 with tabs[2]:
     st.subheader("Multi-Angle Pose Grid")
-    st.info("1. Upload Reference -> 2. Plan 20 Angles -> 3. Upload Grid -> 4. Click to Prompt")
-    
     ref_img = st.file_uploader("1. Upload Reference Character", type=["png", "jpg", "webp"], key="mag_ref")
     
-    if ref_img:
-        st.image(ref_img, width=200, caption="Reference")
-        if st.button("Analyze & Plan 20 Angles", key="mag_plan_btn"):
-            with st.spinner("Planning 20-angle character sheet..."):
-                plan = svc.multi_angle_planner_filelike(ref_img, st.session_state.master_prompt)
-                st.session_state.multi_angle_data = plan
-                st.success("Plan generated!")
+    if ref_img and st.button("Analyze & Plan 20 Angles", key="mag_plan_btn"):
+        with st.spinner("Planning..."):
+            st.session_state.multi_angle_data = svc.multi_angle_planner_filelike(ref_img, st.session_state.master_prompt)
+            st.success("Plan generated!")
     
     plan_data = st.session_state.multi_angle_data
     if plan_data:
         st.divider()
-        col1, col2 = st.columns([1, 1])
-        with col1:
-            grid_prompt = plan_data.get("grid_prompt", "")
-            st.text_area("Grid Prompt (Use in DALL-E/Midjourney)", value=grid_prompt, height=150)
-            copy_button("📋 Copy Grid Prompt", grid_prompt)
-        with col2:
-            st.markdown("**Angle List:**")
-            with st.expander("View 20 Angles"):
-                st.json(plan_data.get("angles", []))
-
-        st.divider()
-        st.markdown("### Select Angle")
+        st.text_area("Grid Prompt", value=plan_data.get("grid_prompt", ""), height=150)
         
-        if not HAS_COORDS:
-            st.warning("Install `streamlit-image-coordinates` to enable click-to-select.")
-        else:
+        if HAS_COORDS:
             grid_upload = st.file_uploader("Upload Generated Grid (4x5)", type=["png", "jpg"], key="mag_grid_upl")
             if grid_upload:
                 value = streamlit_image_coordinates(grid_upload, key="grid_coords")
                 if value:
-                    pil_img = Image.open(grid_upload)
-                    w, h = pil_img.size
-                    col_idx = int(value["x"] // (w / 4))
-                    row_idx = int(value["y"] // (h / 5))
-                    angle_num = (row_idx * 4) + col_idx + 1
-                    
+                    w, h = Image.open(grid_upload).size
+                    angle_num = int(value["y"] // (h / 5)) * 4 + int(value["x"] // (w / 4)) + 1
                     angles = plan_data.get("angles", [])
                     if 0 < angle_num <= len(angles):
-                        sel_angle = angles[angle_num - 1]
-                        st.success(f"Selected Angle #{angle_num}: {sel_angle.get('name')}")
-                        final_prompt = svc.build_physics_prompt(st.session_state.master_prompt, sel_angle)
-                        st.text_area("Physics Prompt", value=final_prompt, height=250)
-                        copy_button("📋 Copy Physics Prompt", final_prompt)
+                        final_prompt = svc.build_physics_prompt(st.session_state.master_prompt, angles[angle_num - 1])
+                        st.text_area(f"Physics Prompt (Angle #{angle_num})", value=final_prompt, height=250)
 
-# ---------------- Tab 3: Digital Wardrobe (NEW) ----------------
+# ---------------- Tab 3: Digital Wardrobe ----------------
 with tabs[3]:
     st.subheader("Digital Wardrobe")
-    st.info("Upload an image of an outfit (dress, suit, etc.). The AI will extract the 'Fashion DNA' and fuse it with your Master Identity.")
-
     wardrobe_img = st.file_uploader("Upload Outfit Reference", type=["png", "jpg", "webp"], key="wardrobe_upl")
+    if wardrobe_img and st.button("🧵 Analyze & Wear", key="wardrobe_btn"):
+        with st.spinner("Extracting textures..."):
+            w_data = svc.wardrobe_fuse_filelike(wardrobe_img, st.session_state.master_prompt)
+        st.success("Outfit Fused!")
+        st.text_area("Final Prompt", value=w_data.get("fused_prompt", ""), height=300)
 
-    if wardrobe_img:
-        st.image(wardrobe_img, width=250, caption="Outfit Reference")
-        
-        if st.button("🧵 Analyze & Wear", key="wardrobe_btn"):
-            with st.spinner("Extracting textures and fabrics..."):
-                w_data = svc.wardrobe_fuse_filelike(wardrobe_img, st.session_state.master_prompt)
-            
-            st.success("Outfit Fused!")
-            
-            st.markdown("### Outfit Analysis")
-            st.write(w_data.get("outfit_description", "No description generated."))
-            
-            st.markdown("### Fused Prompt")
-            fused_prompt = w_data.get("fused_prompt", "")
-            st.text_area("Final Prompt", value=fused_prompt, height=300)
-            copy_button("📋 Copy Fused Prompt", fused_prompt)
-
-# ---------------- Tab 4: Prompter ----------------
+# ---------------- Tab 4: DrMotion (Video) ----------------
 with tabs[4]:
-    st.subheader("Prompter")
+    st.subheader("DrMotion: Video Physics Engine")
+    st.info("Generates physics-aware prompts tailored for specific video AI models (Kling, Veo, etc.).")
     
+    dm_img = st.file_uploader("Upload Character Image", type=["png", "jpg", "webp"], key="drmotion_upl")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        model_choice = st.selectbox("Select Video AI Model", 
+            ["Kling 1.5", "Veo 2 / Sora", "Luma Dream Machine", "Runway Gen-3 Alpha"], 
+            key="dm_model"
+        )
+    with col2:
+        motion_type = st.selectbox("Select Motion", 
+            ["Walking Runway (Slow)", "Turning Head & Smiling", "Drinking Coffee", "Typing at Laptop", "Dancing (Spin)", "Running (Fast)", "Talking to Camera"], 
+            key="dm_motion"
+        )
+        
+    if dm_img and st.button("💊 Diagnose & Prescribe Prompt", key="dm_btn"):
+        with st.spinner(f"Simulating physics for {model_choice}..."):
+            dm_data = svc.drmotion_generate(dm_img, model_choice, motion_type, st.session_state.master_prompt)
+            
+        st.success("Motion Prescription Ready!")
+        
+        st.markdown("### 🔬 Physics & Lighting Logic")
+        st.info(dm_data.get("physics_logic", "Analysis pending..."))
+        
+        final_v_prompt = dm_data.get("final_video_prompt", "")
+        st.text_area("Video Generation Prompt (Copy & Paste)", value=final_v_prompt, height=250)
+        copy_button("📋 Copy Video Prompt", final_v_prompt)
+
+# ---------------- Tab 5: Prompter ----------------
+with tabs[5]:
+    st.subheader("Prompter")
     c1, c2 = st.columns(2)
     with c1:
         pose = st.selectbox("Pose", ["Confident", "Sitting", "Walking", "Close-up"], key="p_pose")
@@ -204,48 +195,37 @@ with tabs[4]:
         fields = {"pose": pose, "attire": attire, "lighting": lighting, "camera_angle": cam, "background": bg, "jewellery": jewel}
         prompt = svc.prompter_build(st.session_state.master_prompt, fields)
         st.text_area("Result", value=prompt, height=300)
-        copy_button("📋 Copy", prompt)
 
-# ---------------- Tab 5: Poser ----------------
-with tabs[5]:
+# ---------------- Tab 6: Poser ----------------
+with tabs[6]:
     st.subheader("Poser")
     poser_img = st.file_uploader("Upload Reference Pose", type=["jpg", "png"], key="poser_upl")
     style = st.selectbox("Style", ["Casual", "Elegant", "Edgy", "Professional"], key="poser_style")
-    
     if poser_img and st.button("Generate Variations", key="poser_btn"):
         with st.spinner("Dreaming up poses..."):
             st.session_state.poser_data = svc.poser_variations_filelike(poser_img, st.session_state.master_prompt, style)
     
     if st.session_state.poser_data:
         data = st.session_state.poser_data
-        prompts = data.get("prompts", [])
-        
-        # Display as Radio Selection
-        names = [p.get("pose_name", "Pose") for p in prompts]
+        names = [p.get("pose_name", "Pose") for p in data.get("prompts", [])]
         selected_name = st.radio("Choose a Variation", names)
-        
-        # Find selected
-        for p in prompts:
+        for p in data.get("prompts", []):
             if p.get("pose_name") == selected_name:
-                full_text = f"{st.session_state.master_prompt}\n\nPOSE: {p.get('pose_name')}\nDETAILS: {p.get('pose_description')}\nEXPRESSION: {p.get('facial_expression')}\n\nSCENE LOCK: {data.get('scene_lock')}"
-                st.text_area("Prompt", value=full_text, height=250)
-                copy_button("📋 Copy Pose", full_text)
+                st.text_area("Prompt", value=f"{st.session_state.master_prompt}\n\nPOSE: {p.get('pose_name')}\nDETAILS: {p.get('pose_description')}\nSCENE: {data.get('scene_lock')}", height=250)
 
-# ---------------- Tab 6: Captions ----------------
-with tabs[6]:
+# ---------------- Tab 7: Captions ----------------
+with tabs[7]:
     st.subheader("Captions")
     cap_img = st.file_uploader("Upload for Caption", type=["jpg", "png"], key="cap_upl")
-    c_style = st.selectbox("Tone", ["Funny", "Serious", "Inspirational", "Sarcastic"], key="cap_style")
-    c_lang = st.radio("Language", ["English", "Hindi", "Hinglish"], horizontal=True, key="cap_lang")
-    
+    c_style = st.selectbox("Tone", ["Funny", "Serious", "Inspirational"], key="cap_style")
+    c_lang = st.radio("Language", ["English", "Hindi"], horizontal=True, key="cap_lang")
     if cap_img and st.button("Write Caption", key="cap_btn"):
         with st.spinner("Writing..."):
             res = svc.captions_generate_filelike(cap_img, c_style, c_lang)
-        
         st.text_area("Caption", value=res.get("caption"), height=150)
         st.text_input("Hashtags", value=" ".join(res.get("hashtags", [])))
 
-# ---------------- Tab 7: Settings ----------------
-with tabs[7]:
+# ---------------- Tab 8: Settings ----------------
+with tabs[8]:
     st.subheader("Settings")
     st.session_state.master_prompt = st.text_area("Master DNA", value=st.session_state.master_prompt, height=300)
