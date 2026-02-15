@@ -109,38 +109,31 @@ with tabs[1]:
         copy_button("📋 Copy Prompt", rec_prompt)
         st.json(data)
 
-# ---------------- Tab 2: Multi-Angle Grid (Debug Fix) ----------------
+# ---------------- Tab 2: Multi-Angle Grid ----------------
 with tabs[2]:
     st.subheader("Multi-Angle Pose Grid")
     st.caption("Plan 20 unique angles for your character.")
     
     ref_img = st.file_uploader("1. Upload Reference Character", type=["png", "jpg", "webp"], key="mag_ref")
     
-    # Add a Reset button in case you get stuck
     if st.button("🔄 Reset Tab", key="mag_reset"):
         st.session_state.multi_angle_data = None
         st.rerun()
 
     if ref_img and st.button("Analyze & Plan 20 Angles", key="mag_plan_btn"):
-        with st.spinner("Planning 20-angle sheet (this may take 20-30s)..."):
-            # Call the service
+        with st.spinner("Planning 20-angle sheet..."):
             plan = svc.multi_angle_planner_filelike(ref_img, st.session_state.master_prompt)
-            
-            # --- DEBUG: Check if data came back empty ---
             if not plan:
-                st.error("❌ API Error: The AI returned no data.")
-                st.warning("Possible causes:\n1. Your API Key is invalid.\n2. You are out of OpenAI credits.\n3. The model 'gpt-4o' is not available on your account (try 'gpt-4-turbo').")
+                st.error("❌ API Error: AI returned no data. Check console logs.")
             else:
                 st.session_state.multi_angle_data = plan
-                st.success("Plan generated successfully!")
-                st.rerun() # Force a refresh to show data
+                st.success("Plan generated!")
+                st.rerun()
 
-    # Display Logic
     plan_data = st.session_state.multi_angle_data
     if plan_data:
         st.divider()
-        st.markdown("### 1. The Grid Prompt")
-        st.text_area("Grid Prompt (Copy this to Midjourney/DALL-E)", value=plan_data.get("grid_prompt", ""), height=150)
+        st.text_area("Grid Prompt", value=plan_data.get("grid_prompt", ""), height=150)
         
         st.markdown("### 2. Select Angle")
         selection_mode = st.radio("Selection Method", ["Visual Selection (Click Image)", "Manual Selection (Dropdown List)"], horizontal=True)
@@ -170,12 +163,11 @@ with tabs[2]:
                         col_idx = int(value["x"] // (w / 4))
                         row_idx = int(value["y"] // (h / 5))
                         angle_num = (row_idx * 4) + col_idx + 1
-                        
                         angles = plan_data.get("angles", [])
                         if 0 < angle_num <= len(angles):
                             selected_angle = angles[angle_num - 1]
             else:
-                st.warning("⚠️ To use Visual Selection, you must add `streamlit-image-coordinates` to your requirements.txt file.")
+                st.warning("Install `streamlit-image-coordinates` to use visual selection.")
 
         if selected_angle:
             st.success(f"Selected: **{selected_angle.get('name')}**")
@@ -196,31 +188,74 @@ with tabs[3]:
 # ---------------- Tab 4: DrMotion (Video) ----------------
 with tabs[4]:
     st.subheader("DrMotion: Video Physics Engine")
-    st.info("Generates physics-aware prompts tailored for specific video AI models (Kling, Veo, etc.).")
     
-    dm_img = st.file_uploader("Upload Character Image", type=["png", "jpg", "webp"], key="drmotion_upl")
+    # --- Mode Switch ---
+    dm_mode = st.radio("Mode", ["General Motion", "Product Review (16s Story)"], horizontal=True)
     
-    col1, col2 = st.columns(2)
-    with col1:
-        model_choice = st.selectbox("Select Video AI Model", 
-            ["Kling 1.5", "Veo 2 / Sora", "Luma Dream Machine", "Runway Gen-3 Alpha"], 
-            key="dm_model"
-        )
-    with col2:
-        motion_type = st.selectbox("Select Motion", 
-            ["Walking Runway (Slow)", "Turning Head & Smiling", "Drinking Coffee", "Typing at Laptop", "Dancing (Spin)", "Running (Fast)", "Talking to Camera"], 
-            key="dm_motion"
-        )
-        
-    if dm_img and st.button("💊 Diagnose & Prescribe Prompt", key="dm_btn"):
-        with st.spinner(f"Simulating physics for {model_choice}..."):
-            dm_data = svc.drmotion_generate(dm_img, model_choice, motion_type, st.session_state.master_prompt)
+    st.divider()
+
+    if dm_mode == "General Motion":
+        # Standard Single Clip Mode
+        dm_img = st.file_uploader("Upload Character Image", type=["png", "jpg", "webp"], key="drmotion_upl")
+        col1, col2 = st.columns(2)
+        with col1:
+            model_choice = st.selectbox("Select Video AI Model", ["Kling 1.5", "Veo 2 / Sora", "Luma Dream Machine", "Runway Gen-3 Alpha"], key="dm_model")
+        with col2:
+            motion_type = st.selectbox("Select Motion", ["Walking Runway", "Turning Head & Smiling", "Drinking Coffee", "Typing", "Dancing", "Running", "Talking to Camera"], key="dm_motion")
             
-        st.success("Motion Prescription Ready!")
-        st.info(dm_data.get("physics_logic", "Analysis pending..."))
-        final_v_prompt = dm_data.get("final_video_prompt", "")
-        st.text_area("Video Generation Prompt (Copy & Paste)", value=final_v_prompt, height=250)
-        copy_button("📋 Copy Video Prompt", final_v_prompt)
+        if dm_img and st.button("💊 Diagnose & Prescribe Prompt", key="dm_btn"):
+            with st.spinner("Simulating physics..."):
+                dm_data = svc.drmotion_generate(dm_img, model_choice, motion_type, st.session_state.master_prompt)
+            st.success("Ready!")
+            st.info(dm_data.get("physics_logic", ""))
+            final_v_prompt = dm_data.get("final_video_prompt", "")
+            st.text_area("Video Prompt", value=final_v_prompt, height=200)
+            copy_button("📋 Copy", final_v_prompt)
+
+    else:
+        # --- NEW: PRODUCT REVIEW MODE ---
+        st.info("Generates a 2-part video sequence (16s total) with continuity.")
+        
+        pr_img = st.file_uploader("Upload Product / Model with Product", type=["png", "jpg", "webp"], key="pr_upl")
+        
+        c1, c2 = st.columns(2)
+        with c1:
+            pr_desc = st.text_input("Product Name & Details", "Vitamin C Serum - for glowing skin")
+        with c2:
+            pr_lang = st.selectbox("Script Language", ["Hinglish", "Hindi", "English"], index=0)
+
+        if pr_img and st.button("🎬 Generate 16s Review Plan", key="pr_btn"):
+            with st.spinner("Writing script and visual storyboard..."):
+                pr_data = svc.drmotion_product_review(pr_img, pr_desc, pr_lang, st.session_state.master_prompt)
+            
+            st.success("Review Plan Generated!")
+            
+            # Script Section
+            st.markdown("### 📝 The Script (Audio)")
+            st.caption(f"Language: {pr_lang}")
+            script_text = pr_data.get("script", "")
+            st.text_area("Spoken Dialogue", value=script_text, height=100)
+            
+            st.divider()
+            
+            # 2-Part Box Layout
+            col_a, col_b = st.columns(2)
+            
+            with col_a:
+                st.markdown("#### 1️⃣ Clip A (0-8s): Hook")
+                st.caption("Intro & Talking to Camera")
+                prompt_a = pr_data.get("clip_1_prompt", "")
+                st.text_area("Prompt A", value=prompt_a, height=250)
+                copy_button("📋 Copy Clip A", prompt_a)
+                
+            with col_b:
+                st.markdown("#### 2️⃣ Clip B (8-16s): Demo")
+                st.caption("Close-up / Usage (Matches Clip A)")
+                prompt_b = pr_data.get("clip_2_prompt", "")
+                st.text_area("Prompt B", value=prompt_b, height=250)
+                copy_button("📋 Copy Clip B", prompt_b)
+            
+            st.warning(f"**Continuity Note:** {pr_data.get('continuity_notes', 'Ensure lighting matches.')}")
 
 # ---------------- Tab 5: Prompter ----------------
 with tabs[5]:
