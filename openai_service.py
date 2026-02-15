@@ -18,9 +18,10 @@ class OpenAIService:
 
     # -------------------- DR. MOTION (VIDEO) --------------------
     
-    def drmotion_generate(self, uploaded_file, model_choice: str, motion_type: str, master_dna: str) -> Dict[str, Any]:
-        """Standard single-clip generation."""
+    def drmotion_generate(self, uploaded_file, model_choice: str, motion_type: str, emotion: str, master_dna: str) -> Dict[str, Any]:
+        """Standard single-clip generation with Emotion injection."""
         data_url = self._filelike_to_data_url(uploaded_file)
+        
         model_guides = {
             "Kling 1.5": "Focus on 'high quality', '8k', camera orbit, texture realism.",
             "Veo 2 / Sora": "Focus on physics consistency, fluid dynamics, lighting interaction.",
@@ -28,33 +29,48 @@ class OpenAIService:
             "Runway Gen-3 Alpha": "Focus on 'structure preservation', 'smooth motion', speed/intensity."
         }
         guide = model_guides.get(model_choice, "Focus on realistic motion and physics.")
+        
         instructions = (
             f"You are Dr. Motion, expert in {model_choice}.\nStyle Guide: {guide}\n"
-            f"Task: Write a video prompt for motion: '{motion_type}'.\n"
-            "Include Physics & Lighting: Cloth simulation, Hair physics, Lighting shifts, Weight.\n"
-            "Return JSON: {analysis, physics_logic, final_video_prompt}."
+            f"Task: Write a video prompt for motion: '{motion_type}' with Emotion: '{emotion}'.\n"
+            "CRITICAL - ACTING & MICRO-EXPRESSIONS:\n"
+            "   - Do not just say the emotion name. Describe the face.\n"
+            "   - If 'Happy': Mention 'crinkling eyes (Duchenne smile)', 'shoulders relaxing'.\n"
+            "   - If 'Serious': Mention 'focused gaze', 'firm posture', 'minimal blinking'.\n"
+            "   - Include 'Natural Pauses': hesitation before moving, taking a breath.\n"
+            "Include Physics: Cloth simulation, Hair physics, Lighting shifts.\n"
+            "Return JSON: {analysis, physics_logic, acting_notes, final_video_prompt}."
         )
-        user_text = f"Master Identity: {master_dna}\nModel: {model_choice}\nMotion: {motion_type}\nGenerate prompt."
+        
+        user_text = (
+            f"Master Identity: {master_dna}\n"
+            f"Model: {model_choice}\n"
+            f"Motion: {motion_type}\n"
+            f"Target Emotion: {emotion}\n"
+            "Generate prompt."
+        )
+        
         messages = [
             {"role": "system", "content": instructions},
             {"role": "user", "content": [{"type": "text", "text": user_text}, {"type": "image_url", "image_url": {"url": data_url}}]},
         ]
         return self._call_chat_json(messages, max_tokens=1500)
 
-    def drmotion_product_review(self, uploaded_file, product_info: str, language: str, master_dna: str) -> Dict[str, Any]:
+    def drmotion_product_review(self, uploaded_file, product_info: str, language: str, emotion: str, master_dna: str) -> Dict[str, Any]:
         """
-        Generates a 2-part sequence (16s total) for a product review.
+        Generates a 2-part sequence (16s total) for a product review with specific Emotional Tone.
         """
         data_url = self._filelike_to_data_url(uploaded_file)
         
         instructions = (
             "You are an expert AI Commercial Director.\n"
             "Task: Create a cohesive 16-second 'Product Review' sequence split into two 8-second clips.\n"
-            "1. Analyze the input image to understand the product/setting.\n"
-            f"2. Write a short, engaging script/dialogue in '{language}'.\n"
-            "3. Create TWO distinct video generation prompts (Clip A and Clip B) that flow seamlessly.\n"
-            "   - Clip A (0-8s): The Hook. Character holding product near face, talking to camera. High energy.\n"
-            "   - Clip B (8-16s): The Demo/Result. Close up of product texture or application. MUST reference Clip A's lighting/setting for continuity.\n"
+            f"TONE/EMOTION: {emotion.upper()}.\n"
+            "1. Analyze the input image.\n"
+            f"2. Write a script in '{language}' that strictly matches the '{emotion}' tone (e.g., if 'High Energy', use short punchy words. If 'Casual', use slang/fillers like 'um', 'actually').\n"
+            "3. Create TWO distinct video prompts (Clip A and Clip B).\n"
+            "   - Clip A (0-8s): Hook. Focus on Facial Expressions. Include specific acting cues (e.g., 'gasps in delight', 'raises eyebrow skeptically').\n"
+            "   - Clip B (8-16s): Demo. Focus on Product. Match lighting of Clip A.\n"
             "Return JSON keys: 'script', 'clip_1_prompt', 'clip_2_prompt', 'continuity_notes'."
         )
 
@@ -62,6 +78,7 @@ class OpenAIService:
             f"Master Identity: {master_dna}\n"
             f"Product Details: {product_info}\n"
             f"Script Language: {language}\n"
+            f"Target Emotion: {emotion}\n"
             "Generate the 2-part video sequence plan."
         )
 
