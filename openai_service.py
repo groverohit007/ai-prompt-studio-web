@@ -8,7 +8,7 @@ from openai import OpenAI
 class OpenAIService:
     """
     Streamlit-ready OpenAI service.
-    Includes: Cloner, PerfectCloner, Multi-Angle, Wardrobe, DrMotion, Poser, Captions, Prompter.
+    Includes: Cloner, PerfectCloner, Multi-Angle, Wardrobe, DrMotion (Standard + Product Review), Poser, Captions, Prompter.
     SAFE MODE: Removes specific body-measurement triggers from analysis instructions to prevent API refusals.
     """
 
@@ -16,8 +16,10 @@ class OpenAIService:
         self.client = OpenAI(api_key=api_key)
         self.model = model
 
-    # -------------------- DR. MOTION --------------------
+    # -------------------- DR. MOTION (VIDEO) --------------------
+    
     def drmotion_generate(self, uploaded_file, model_choice: str, motion_type: str, master_dna: str) -> Dict[str, Any]:
+        """Standard single-clip generation."""
         data_url = self._filelike_to_data_url(uploaded_file)
         model_guides = {
             "Kling 1.5": "Focus on 'high quality', '8k', camera orbit, texture realism.",
@@ -39,6 +41,42 @@ class OpenAIService:
         ]
         return self._call_chat_json(messages, max_tokens=1500)
 
+    def drmotion_product_review(self, uploaded_file, product_info: str, language: str, master_dna: str) -> Dict[str, Any]:
+        """
+        Generates a 2-part sequence (16s total) for a product review.
+        """
+        data_url = self._filelike_to_data_url(uploaded_file)
+        
+        instructions = (
+            "You are an expert AI Commercial Director.\n"
+            "Task: Create a cohesive 16-second 'Product Review' sequence split into two 8-second clips.\n"
+            "1. Analyze the input image to understand the product/setting.\n"
+            f"2. Write a short, engaging script/dialogue in '{language}'.\n"
+            "3. Create TWO distinct video generation prompts (Clip A and Clip B) that flow seamlessly.\n"
+            "   - Clip A (0-8s): The Hook. Character holding product near face, talking to camera. High energy.\n"
+            "   - Clip B (8-16s): The Demo/Result. Close up of product texture or application. MUST reference Clip A's lighting/setting for continuity.\n"
+            "Return JSON keys: 'script', 'clip_1_prompt', 'clip_2_prompt', 'continuity_notes'."
+        )
+
+        user_text = (
+            f"Master Identity: {master_dna}\n"
+            f"Product Details: {product_info}\n"
+            f"Script Language: {language}\n"
+            "Generate the 2-part video sequence plan."
+        )
+
+        messages = [
+            {"role": "system", "content": instructions},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": user_text},
+                    {"type": "image_url", "image_url": {"url": data_url}},
+                ],
+            },
+        ]
+        return self._call_chat_json(messages, max_tokens=2000)
+
     # -------------------- DIGITAL WARDROBE --------------------
     def wardrobe_fuse_filelike(self, uploaded_file, master_dna: str) -> Dict[str, Any]:
         data_url = self._filelike_to_data_url(uploaded_file)
@@ -58,7 +96,6 @@ class OpenAIService:
     # -------------------- MULTI-ANGLE GRID PLANNER (SAFE) --------------------
     def multi_angle_planner_filelike(self, uploaded_file, master_dna: str) -> Dict[str, Any]:
         data_url = self._filelike_to_data_url(uploaded_file)
-        # We trim DNA to avoid sending sensitive body metrics that might trigger refusal during analysis
         safe_dna_snippet = (master_dna or "")[:200] 
         
         instructions = (
@@ -199,7 +236,6 @@ class OpenAIService:
             )
             return json.loads(self._sanitize_json_text(resp.choices[0].message.content))
         except Exception as e:
-            # DEBUG PRINT: This will print the error to your console so you know exactly what happened
             print(f"❌ OPENAI ERROR: {e}") 
             if hasattr(e, 'response'):
                 print(f"Response: {e.response}")
