@@ -9,105 +9,69 @@ class OpenAIService:
     """
     Streamlit-ready OpenAI service.
     Includes: Cloner, PerfectCloner, Multi-Angle, Wardrobe, DrMotion, Poser, Captions, Prompter.
+    SAFE MODE: Removes specific body-measurement triggers from analysis instructions to prevent API refusals.
     """
 
     def __init__(self, api_key: str, model: str = "gpt-4o"):
         self.client = OpenAI(api_key=api_key)
         self.model = model
 
-    # -------------------- DR. MOTION (VIDEO) --------------------
+    # -------------------- DR. MOTION --------------------
     def drmotion_generate(self, uploaded_file, model_choice: str, motion_type: str, master_dna: str) -> Dict[str, Any]:
         data_url = self._filelike_to_data_url(uploaded_file)
-        
-        # Model-Specific "Secret Sauce"
         model_guides = {
-            "Kling 1.5": "Focus on 'high quality', '8k', camera orbit, texture realism, and 'structure preservation'.",
-            "Veo 2 / Sora": "Focus on physics consistency, fluid dynamics, lighting interaction, and temporal coherence.",
-            "Luma Dream Machine": "Focus on 'cinematic', 'keyframe', start/end state, and 'highly detailed'.",
-            "Runway Gen-3 Alpha": "Focus on 'structure preservation', 'smooth motion', specific speed/intensity adjectives."
+            "Kling 1.5": "Focus on 'high quality', '8k', camera orbit, texture realism.",
+            "Veo 2 / Sora": "Focus on physics consistency, fluid dynamics, lighting interaction.",
+            "Luma Dream Machine": "Focus on 'cinematic', 'keyframe', start/end state.",
+            "Runway Gen-3 Alpha": "Focus on 'structure preservation', 'smooth motion', speed/intensity."
         }
-        
         guide = model_guides.get(model_choice, "Focus on realistic motion and physics.")
-
         instructions = (
-            f"You are Dr. Motion, an expert AI Video Prompt Engineer specializing in {model_choice}.\n"
-            f"STYLE GUIDE: {guide}\n\n"
-            "TASK:\n"
-            f"1. Analyze the uploaded image.\n"
-            f"2. Write a specialized video generation prompt for the motion: '{motion_type}'.\n"
-            "3. CRITICAL: Include specific 'Physics & Lighting Logics':\n"
-            "   - Cloth Simulation: How fabric moves/wrinkles.\n"
-            "   - Hair Physics: Gravity/wind reaction.\n"
-            "   - Lighting: Shadow shifts and highlight travel.\n"
-            "   - Weight: Heaviness of footsteps or gestures.\n\n"
-            "Return JSON keys: 'analysis', 'physics_logic', 'final_video_prompt'."
+            f"You are Dr. Motion, expert in {model_choice}.\nStyle Guide: {guide}\n"
+            f"Task: Write a video prompt for motion: '{motion_type}'.\n"
+            "Include Physics & Lighting: Cloth simulation, Hair physics, Lighting shifts, Weight.\n"
+            "Return JSON: {analysis, physics_logic, final_video_prompt}."
         )
-
-        user_text = (
-            f"Master Identity: {master_dna}\n"
-            f"Target Model: {model_choice}\n"
-            f"Target Motion: {motion_type}\n"
-            "Generate the video prompt."
-        )
-
+        user_text = f"Master Identity: {master_dna}\nModel: {model_choice}\nMotion: {motion_type}\nGenerate prompt."
         messages = [
             {"role": "system", "content": instructions},
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": user_text},
-                    {"type": "image_url", "image_url": {"url": data_url}},
-                ],
-            },
+            {"role": "user", "content": [{"type": "text", "text": user_text}, {"type": "image_url", "image_url": {"url": data_url}}]},
         ]
         return self._call_chat_json(messages, max_tokens=1500)
 
     # -------------------- DIGITAL WARDROBE --------------------
     def wardrobe_fuse_filelike(self, uploaded_file, master_dna: str) -> Dict[str, Any]:
         data_url = self._filelike_to_data_url(uploaded_file)
-        
         instructions = (
-            "You are an expert AI Fashion Stylist.\n"
-            "1. Analyze the uploaded image and extract the 'Outfit DNA' (fabric, cut, texture, color). IGNORE the person; focus on clothing.\n"
-            "2. Combine this Outfit DNA with the user's locked 'Master Face DNA'.\n"
-            "3. Generate a final image prompt featuring the Master DNA character wearing this outfit.\n"
-            "Return JSON keys: 'outfit_description', 'fused_prompt'."
+            "Analyze outfit image (fabric, cut, texture, color). IGNORE the person/body.\n"
+            "Fuse this outfit description with the user's locked 'Master Face DNA'.\n"
+            "Generate a final image prompt.\n"
+            "Return JSON: {outfit_description, fused_prompt}."
         )
-
-        user_text = (
-            f"MASTER DNA:\n{master_dna}\n\n"
-            "Task: Create a prompt where this character is wearing the outfit from the image.\n"
-            "Output JSON."
-        )
-
+        user_text = f"MASTER DNA:\n{master_dna}\n\nTask: Wear this outfit.\nOutput JSON."
         messages = [
             {"role": "system", "content": instructions},
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": user_text},
-                    {"type": "image_url", "image_url": {"url": data_url}},
-                ],
-            },
+            {"role": "user", "content": [{"type": "text", "text": user_text}, {"type": "image_url", "image_url": {"url": data_url}}]},
         ]
         return self._call_chat_json(messages, max_tokens=1500)
 
-    # -------------------- MULTI-ANGLE GRID PLANNER --------------------
+    # -------------------- MULTI-ANGLE GRID PLANNER (SAFE) --------------------
     def multi_angle_planner_filelike(self, uploaded_file, master_dna: str) -> Dict[str, Any]:
         data_url = self._filelike_to_data_url(uploaded_file)
-        dna_snippet = (master_dna or "")[:800]
+        # We trim DNA to avoid sending sensitive body metrics that might trigger refusal during analysis
+        safe_dna_snippet = (master_dna or "")[:200] 
         
         instructions = (
             "You are an expert Virtual Photography Director.\n"
             "Task: Design a 'Multi-Angle Character Sheet' (4x5 grid, 20 slots).\n"
             "1. Create a 'grid_prompt' for the image generator. CRITICAL: You MUST explicitly list the 20 angles in the prompt text (e.g., 'Slot 1: Front, Slot 2: Side...').\n"
-            "   ALSO: Instruct the generator to 'Burn visible numbers 1-20 into the corner of each grid slot' so the user can identify them.\n"
+            "   ALSO: Instruct the generator to 'Burn visible numbers 1-20 into the corner of each grid slot'.\n"
             "2. Return a structured list of these 20 angles.\n"
             "Return JSON keys: 'grid_prompt' (string), 'angles' (list of objects with id (1-20), name, description)."
         )
 
         user_text = (
-            f"Character DNA:\n{dna_snippet}\n\n"
+            f"Character Context: {safe_dna_snippet}\n"
             "Task: Plan 20 distinct camera angles (Low, High, Dutch, Profile, Back, etc.).\n"
             "Output JSON."
         )
@@ -127,7 +91,6 @@ class OpenAIService:
     def build_physics_prompt(self, master_dna: str, angle_data: Dict[str, Any]) -> str:
         angle_name = angle_data.get("name", "Unknown Angle")
         angle_desc = angle_data.get("description", "")
-
         physics_block = (
             "LIGHTING & PHYSICS (PBR):\n"
             "- Physically Based Rendering (PBR), Raytraced GI.\n"
@@ -135,7 +98,6 @@ class OpenAIService:
             "- Fresnel reflections, Volumetric lighting.\n"
             "- Realistic cast shadows, Ambient Occlusion."
         )
-
         full_prompt = (
             f"{master_dna.strip()}\n\n"
             f"ANGLE: {angle_name}\nDESC: {angle_desc}\n\n"
@@ -147,14 +109,8 @@ class OpenAIService:
     # -------------------- CAPTIONS --------------------
     def captions_generate_filelike(self, uploaded_file, style: str = "Engaging", language: str = "English") -> Dict[str, Any]:
         data_url = self._filelike_to_data_url(uploaded_file)
-        instructions = (
-            "You are a social media caption writer.\n"
-            "Analyze the image and write ONE Instagram caption that is detailed, engaging, and uses lots of emojis.\n"
-            "Also provide EXACTLY 4 hashtags.\n"
-            "Return JSON: {caption: string, hashtags: [string]}."
-        )
-        user_content = f"Style: {style}\nLanguage: {language}\nReturn JSON."
-
+        instructions = "Analyze image. Write ONE Instagram caption with emojis + EXACTLY 4 hashtags. Return JSON: {caption, hashtags}."
+        user_content = f"Style: {style}\nLanguage: {language}"
         messages = [
             {"role": "system", "content": instructions},
             {"role": "user", "content": [{"type": "text", "text": user_content}, {"type": "image_url", "image_url": {"url": data_url}}]},
@@ -164,11 +120,16 @@ class OpenAIService:
         if isinstance(hashtags, list): hashtags = [str(h) for h in hashtags[:4]]
         return {"caption": data.get("caption", ""), "hashtags": hashtags}
 
-    # -------------------- CLONER --------------------
+    # -------------------- CLONER (SAFE MODE) --------------------
     def cloner_analyze_filelike(self, uploaded_file, master_dna: str) -> Dict[str, Any]:
         data_url = self._filelike_to_data_url(uploaded_file)
-        instructions = "Analyze image. Return keys: full_prompt, negative_prompt. full_prompt MUST start with MASTER DNA."
-        user_text = f"MASTER DNA:\n{master_dna}\n\nAnalyze this image."
+        instructions = (
+            "Analyze the image's pose, lighting, camera angle, and background style.\n"
+            "Do NOT analyze body measurements or specific biometrics.\n"
+            "Return valid JSON with keys: full_prompt, negative_prompt.\n"
+            "Construct the 'full_prompt' by combining the provided MASTER DNA with your analysis of the scene."
+        )
+        user_text = f"MASTER DNA:\n{master_dna}\n\nAnalyze the scene/lighting/pose of this image and merge it with the DNA."
         messages = [
             {"role": "system", "content": instructions},
             {"role": "user", "content": [{"type": "text", "text": user_text}, {"type": "image_url", "image_url": {"url": data_url}}]},
@@ -189,20 +150,16 @@ class OpenAIService:
     # -------------------- PROMPTER --------------------
     def prompter_build(self, master_dna: str, fields: Dict[str, str]) -> str:
         parts = [
-            master_dna.strip(),
-            "",
-            "PROMPT:",
+            master_dna.strip(), "", "PROMPT:",
             f"Pose: {fields.get('pose', '')}",
             f"Attire: {fields.get('attire', '')}",
             f"Camera: {fields.get('camera_angle', '')} | {fields.get('camera_lens', '')}",
             f"Lighting: {fields.get('lighting', '')}",
             f"Background: {fields.get('background', '')}",
-            f"Jewellery: {fields.get('jewellery', '')}",
-            "",
+            f"Jewellery: {fields.get('jewellery', '')}", "",
             "PHYSICS & REALISM:",
             "- Physically Based Rendering (PBR), realistic shadows, natural skin texture",
-            "- Shot on iPhone 17, f/16 look",
-            "",
+            "- Shot on iPhone 17, f/16 look", "",
             "Negative prompt: blurry, bad anatomy, text, watermark"
         ]
         return "\n".join(parts)
@@ -242,5 +199,8 @@ class OpenAIService:
             )
             return json.loads(self._sanitize_json_text(resp.choices[0].message.content))
         except Exception as e:
-            print(f"Error: {e}")
+            # DEBUG PRINT: This will print the error to your console so you know exactly what happened
+            print(f"❌ OPENAI ERROR: {e}") 
+            if hasattr(e, 'response'):
+                print(f"Response: {e.response}")
             return {}
