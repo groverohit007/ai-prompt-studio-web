@@ -187,11 +187,10 @@ with tabs[3]:
 
 # ---------------- Tab 4: DrMotion (Video) ----------------
 with tabs[4]:
-    st.subheader("DrMotion: Video Physics Engine")
+    st.subheader("DrMotion: Video Physics & Acting Engine")
     
     # --- Mode Switch ---
     dm_mode = st.radio("Mode", ["General Motion", "Product Review (16s Story)"], horizontal=True)
-    
     st.divider()
 
     if dm_mode == "General Motion":
@@ -200,39 +199,56 @@ with tabs[4]:
         col1, col2 = st.columns(2)
         with col1:
             model_choice = st.selectbox("Select Video AI Model", ["Kling 1.5", "Veo 2 / Sora", "Luma Dream Machine", "Runway Gen-3 Alpha"], key="dm_model")
+            # --- NEW: EMOTION SELECTOR ---
+            emotion = st.selectbox("🎭 Emotion / Vibe", 
+                ["Authentic / Natural", "Happy / Excited / Joyful", "Professional / Confident", "Funny / Witty / Goofy", "Emotional / Touching", "Serious / Focused"], 
+                key="dm_emotion"
+            )
         with col2:
             motion_type = st.selectbox("Select Motion", ["Walking Runway", "Turning Head & Smiling", "Drinking Coffee", "Typing", "Dancing", "Running", "Talking to Camera"], key="dm_motion")
             
         if dm_img and st.button("💊 Diagnose & Prescribe Prompt", key="dm_btn"):
-            with st.spinner("Simulating physics..."):
-                dm_data = svc.drmotion_generate(dm_img, model_choice, motion_type, st.session_state.master_prompt)
+            with st.spinner("Analyzing acting & physics..."):
+                dm_data = svc.drmotion_generate(dm_img, model_choice, motion_type, emotion, st.session_state.master_prompt)
             st.success("Ready!")
-            st.info(dm_data.get("physics_logic", ""))
+            
+            # Show acting notes
+            if "acting_notes" in dm_data:
+                st.info(f"🎭 Acting Notes: {dm_data.get('acting_notes')}")
+            else:
+                st.info(dm_data.get("physics_logic", ""))
+                
             final_v_prompt = dm_data.get("final_video_prompt", "")
             st.text_area("Video Prompt", value=final_v_prompt, height=200)
             copy_button("📋 Copy", final_v_prompt)
 
     else:
-        # --- NEW: PRODUCT REVIEW MODE ---
-        st.info("Generates a 2-part video sequence (16s total) with continuity.")
+        # --- NEW: PRODUCT REVIEW MODE WITH EMOTION ---
+        st.info("Generates a 2-part video sequence (16s total) with acting & continuity.")
         
         pr_img = st.file_uploader("Upload Product / Model with Product", type=["png", "jpg", "webp"], key="pr_upl")
         
-        c1, c2 = st.columns(2)
+        c1, c2, c3 = st.columns(3)
         with c1:
             pr_desc = st.text_input("Product Name & Details", "Vitamin C Serum - for glowing skin")
         with c2:
             pr_lang = st.selectbox("Script Language", ["Hinglish", "Hindi", "English"], index=0)
+        with c3:
+            # --- NEW: EMOTION FOR REVIEW ---
+            pr_emotion = st.selectbox("Review Tone", 
+                ["Authentic / User-Generated Content", "High Energy / Sales", "Calm / Aesthetic / ASMR", "Funny / Skit"], 
+                key="pr_emotion"
+            )
 
         if pr_img and st.button("🎬 Generate 16s Review Plan", key="pr_btn"):
-            with st.spinner("Writing script and visual storyboard..."):
-                pr_data = svc.drmotion_product_review(pr_img, pr_desc, pr_lang, st.session_state.master_prompt)
+            with st.spinner("Writing script, acting cues, and visual storyboard..."):
+                pr_data = svc.drmotion_product_review(pr_img, pr_desc, pr_lang, pr_emotion, st.session_state.master_prompt)
             
             st.success("Review Plan Generated!")
             
             # Script Section
             st.markdown("### 📝 The Script (Audio)")
-            st.caption(f"Language: {pr_lang}")
+            st.caption(f"Tone: {pr_emotion} | Language: {pr_lang}")
             script_text = pr_data.get("script", "")
             st.text_area("Spoken Dialogue", value=script_text, height=100)
             
@@ -243,7 +259,7 @@ with tabs[4]:
             
             with col_a:
                 st.markdown("#### 1️⃣ Clip A (0-8s): Hook")
-                st.caption("Intro & Talking to Camera")
+                st.caption("Intro & Acting (Talking to Camera)")
                 prompt_a = pr_data.get("clip_1_prompt", "")
                 st.text_area("Prompt A", value=prompt_a, height=250)
                 copy_button("📋 Copy Clip A", prompt_a)
